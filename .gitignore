@@ -1,0 +1,5 @@
+build/
+/src/tags
+/src/log.txt
+/src/shaders/*.spv
+/src/shaders/*.h
