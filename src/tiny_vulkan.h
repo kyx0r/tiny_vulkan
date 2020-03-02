@@ -404,7 +404,7 @@ u8 *UboDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset);
 //-----------------------------------------------------
 
 //UNCATEGORIZED VARS
-#define MAX_FRAMES_IN_FLIGHT 5 //must be less than num Semaphores, Fences. 
+u32 MAX_FRAMES_IN_FLIGHT; //must be less than num Semaphores, Fences. 
 //-----------------------------------------------------
 VkAllocationCallbacks Allocator;
 VkAllocationCallbacks *VkAllocators = &Allocator;
@@ -619,12 +619,10 @@ memzone_t *Mainzone[10];
 VkClearValue VkClearValues[2];
 VkClearColorValue ColorValue;
 VkImageSubresourceRange ImageSubResourceRange;
-VkImageMemoryBarrier EndRenderMemBarrier;
-VkImageMemoryBarrier BeginRenderMemBarrier;
 VkSubmitInfo SubmitInfo;
 VkPresentInfoKHR PresentInfo;
-u32 ImageIndex;
-VkPipelineStageFlags PipelineStageFlags;
+u32 ImageIndexes[10];
+VkPipelineStageFlags VkPipelineSF[10];
 //POST INIT
 
 //SHADERS
@@ -1222,7 +1220,7 @@ u8 *UboDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset)
 {
 	Size = (Size + (256-1)) & -256;
 	*Offset = UniformBuffers[BufIndex].Offset;
-	ASSERT(*Offset + Size < UniformBuffers[BufIndex].Size, "StagingDigress: out of memory");
+	ASSERT(*Offset + Size < UniformBuffers[BufIndex].Size, "UboDigress: out of memory");
 	u8 *Data = (u8*)UniformBuffers[BufIndex].Data + *Offset;
 	UniformBuffers[BufIndex].Offset += Size;
 	return Data;
@@ -1232,7 +1230,7 @@ u8 *StagingDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset)
 {
 	Size = (Size + (sizeof(u32)-1)) & -sizeof(u32);
 	*Offset = StagingBuffers[BufIndex].Offset;
-	ASSERT(*Offset + Size < StagingBuffers[BufIndex].Size, "UboDigress: out of memory");
+	ASSERT(*Offset + Size < StagingBuffers[BufIndex].Size, "StagingDigress: out of memory");
 	u8 *Data = (u8*)StagingBuffers[BufIndex].Data + *Offset;
 	StagingBuffers[BufIndex].Offset += Size;
 	return Data;
@@ -2466,7 +2464,7 @@ out:;
 	{
 		//Is not managed by SGM because it does not need to be.
 		//Memory is freed on buffer reset, so no need to do any explicit management.
-		StagingBuffers[i].Size = 4194304; //4096 * 1024
+		StagingBuffers[i].Size = 41943040; //4096 * 1024
 		StagingBuffers[i].Data = VkHostMalloc(StagingBuffers[i].Size, &StagingBuffers[i].Buffer, &StagingBuffers[i].DeviceMemory,
 				VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -2678,8 +2676,8 @@ out:;
 	Attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	Attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	Attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	Attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	Attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	Attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	Attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	Attachments[1].flags = VK_ATTACHMENT_DESCRIPTION_MAY_ALIAS_BIT;
 	Attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -2782,12 +2780,16 @@ out:;
 void PostInit()
 {
 	//Sanity checks
+	MAX_FRAMES_IN_FLIGHT = 2;
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_SEMAPHORES, "MAX_FRAMES_IN_FLIGHT > NUM_SEMAPHORES");
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_FENCES, "MAX_FRAMES_IN_FLIGHT > NUM_FENCES");
 
 	CurrentFrame = 0;
 
-	PipelineStageFlags = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	for(u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	{
+		VkPipelineSF[i] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	}
 	ColorValue.float32[0] = 0;
 	ColorValue.float32[1] = 0;
 	ColorValue.float32[2] = 0;
@@ -2802,49 +2804,34 @@ void PostInit()
 	ImageSubResourceRange.baseArrayLayer = 0;
 	ImageSubResourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
-	BeginRenderMemBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	BeginRenderMemBarrier.pNext = NULL;
-	BeginRenderMemBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	BeginRenderMemBarrier.dstAccessMask = 0;
-	BeginRenderMemBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	BeginRenderMemBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	BeginRenderMemBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	BeginRenderMemBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	BeginRenderMemBarrier.subresourceRange = ImageSubResourceRange;
-
-	EndRenderMemBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	EndRenderMemBarrier.pNext = NULL;
-	EndRenderMemBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	EndRenderMemBarrier.dstAccessMask = 0;
-	EndRenderMemBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	EndRenderMemBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	EndRenderMemBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	EndRenderMemBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	EndRenderMemBarrier.subresourceRange = ImageSubResourceRange;
-
 	SubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	SubmitInfo.pNext = NULL;
-	SubmitInfo.waitSemaphoreCount = 1;
-	SubmitInfo.pWaitDstStageMask = &PipelineStageFlags;
-	SubmitInfo.commandBufferCount = 1;
-	SubmitInfo.signalSemaphoreCount = 1;
+	SubmitInfo.pWaitSemaphores = &VkSignalSemaphores[0];
+	SubmitInfo.pCommandBuffers = &VkCommandBuffers[0];
+	SubmitInfo.pSignalSemaphores = &VkWaitSemaphores[0];
+	SubmitInfo.waitSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
+	SubmitInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+	SubmitInfo.signalSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
+	SubmitInfo.pWaitDstStageMask = &VkPipelineSF[0];
 
 	PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	PresentInfo.pNext = NULL;
 	PresentInfo.waitSemaphoreCount = 1;
 	PresentInfo.swapchainCount = 1;
-	PresentInfo.pImageIndices = &ImageIndex;
 	PresentInfo.pResults = NULL;
+	PresentInfo.pSwapchains = &VkSwapchains[0];
+	PresentInfo.pImageIndices = &ImageIndexes[0];
+	PresentInfo.pWaitSemaphores = &VkWaitSemaphores[0];
 }
 
 void VkBeginRendering()
 {
 	VkResult result;
-	vkResetFences(LogicalDevice, 1, &VkFences[CurrentFrame]);
 
 	//tell hardware to not wait more than 1 second.
 wait:
-	result = vkAcquireNextImageKHR(LogicalDevice, VkSwapchains[0], 1000000000, VkSignalSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndex);
+	p("CurrentFrame: %d", CurrentFrame);
+	result = vkAcquireNextImageKHR(LogicalDevice, VkSwapchains[0], 1000000000, VkSignalSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndexes[CurrentFrame]);
 	switch( result )
 	{
 	case VK_SUCCESS:
@@ -2864,9 +2851,10 @@ wait:
 		return;
 	}
 
+	p("Index %d", ImageIndexes[CurrentFrame]);
 	while(SubmitStagingBuffer()){/*nothing*/};
 
-	CommandBuffer = VkCommandBuffers[ImageIndex];
+	CommandBuffer = VkCommandBuffers[CurrentFrame];
 
 	VkCommandBufferBeginInfo CommandBufferBI;
 	CommandBufferBI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2882,16 +2870,11 @@ wait:
 	RenderArea.extent.width = SwchImageSize.width;
 	RenderArea.extent.height = SwchImageSize.height;
 
-	BeginRenderMemBarrier.image = VkSwchImages[ImageIndex];
-
-	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-	                     0, 0, NULL, 0, NULL, 1, &BeginRenderMemBarrier);
-
 	VkRenderPassBeginInfo RenderPassBI;
 	RenderPassBI.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	RenderPassBI.pNext = NULL;
 	RenderPassBI.renderPass = VkRenderPasses[0];
-	RenderPassBI.framebuffer = VkFramebuffers[ImageIndex];
+	RenderPassBI.framebuffer = VkFramebuffers[ImageIndexes[CurrentFrame]];
 	RenderPassBI.renderArea = RenderArea;
 	RenderPassBI.clearValueCount = 2;
 	RenderPassBI.pClearValues = VkClearValues;
@@ -2912,41 +2895,40 @@ wait:
 
 void VkEndRendering()
 {
-	VkResult result;
 	vkCmdEndRenderPass(CommandBuffer);
-
-	//transition swapchain image format
-	EndRenderMemBarrier.image = VkSwchImages[ImageIndex];
-
-	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-	                     0, 0, NULL, 0, NULL, 1, &EndRenderMemBarrier);
-
-
-	SubmitInfo.pWaitSemaphores = &VkSignalSemaphores[CurrentFrame];
-	SubmitInfo.pCommandBuffers = &CommandBuffer;
-	SubmitInfo.pSignalSemaphores = &VkWaitSemaphores[CurrentFrame];
-	PresentInfo.pWaitSemaphores = &VkWaitSemaphores[CurrentFrame];
-	PresentInfo.pSwapchains = &VkSwapchains[0];
-
 	VK_CHECK(vkEndCommandBuffer(CommandBuffer));
-	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[CurrentFrame]));
-	result = vkQueuePresentKHR(VkQueues[0], &PresentInfo);
-	vkWaitForFences(LogicalDevice, 1, &VkFences[CurrentFrame], VK_TRUE, UINT64_MAX);
 
-	switch(result)
+	if(CurrentFrame != MAX_FRAMES_IN_FLIGHT-1)
 	{
-	case VK_SUCCESS:
 		CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 		return;
-	case VK_ERROR_OUT_OF_DATE_KHR:
-		Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
-		RebuildRenderer();
-		return; 
-	default:
-		VK_CHECK(result);
-		return;
 	}
+	vkResetFences(LogicalDevice, MAX_FRAMES_IN_FLIGHT, &VkFences[0]);
+	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
+	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
 
+	for(u32 i = 0; i < CurrentFrame+1; i++)
+	{
+		PresentInfo.pImageIndices = &ImageIndexes[i];
+		p("%d", ImageIndexes[i]);
+		PresentInfo.pWaitSemaphores = &VkWaitSemaphores[i];
+		VkResult result = vkQueuePresentKHR(VkQueues[0], &PresentInfo);
+		switch(result)
+		{
+			case VK_SUCCESS:
+				continue;
+			case VK_ERROR_OUT_OF_DATE_KHR:
+				Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
+				RebuildRenderer();
+				return; 
+			default:
+				VK_CHECK(result);
+				return;
+		}
+	}
+	CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+	ASSERT(!CurrentFrame, "CurrentFrame != 0");
+	return;
 }
 
 void DrawBasic(u32 VertexCount, Vertex *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)

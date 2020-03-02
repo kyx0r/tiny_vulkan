@@ -395,7 +395,7 @@ int main(int argc, char** argv)
 	Wnd.Depth = DefaultDepth(Wnd.Display, Wnd.Screen);
 	Wnd.RootWindow = RootWindow(Wnd.Display, DefaultScreen(Wnd.Display));
 	Wnd.Width = 640;
-	Wnd.Height = 640;
+	Wnd.Height = 480;
 	Wnd.Xpos = 0;
 	Wnd.Ypos = 0;
 	Wnd.BorderWidth = 0;
@@ -405,6 +405,18 @@ int main(int argc, char** argv)
 			DefaultVisual(Wnd.Display, Wnd.Screen),
 			Wnd.ValueMask, &Wnd.Attr);
 
+	XSelectInput(Wnd.Display, Wnd.Window, 
+			ExposureMask | KeyPressMask | KeyReleaseMask | PointerMotionMask |
+			ButtonPressMask | ButtonReleaseMask  | StructureNotifyMask | ResizeRequest |
+			ButtonPress | ButtonRelease);
+
+	XMapWindow(Wnd.Display, Wnd.Window);
+	XInitThreads();
+
+	// Set window title
+	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
+	//This call is crucial because the window size may be changed by window manager.
+	ProcessEvents();
 
 	const char *RequiredExtensions[] =
 	{
@@ -422,16 +434,6 @@ int main(int argc, char** argv)
 		Fatal("Failed to initialize vulkan runtime!");
 		exit(1);
 	}
-
-	XSelectInput(Wnd.Display, Wnd.Window, 
-			ExposureMask | KeyPressMask | KeyReleaseMask | PointerMotionMask |
-			ButtonPressMask | ButtonReleaseMask  | StructureNotifyMask | ResizeRequest |
-			ButtonPress | ButtonRelease);
-
-	XMapWindow(Wnd.Display, Wnd.Window);
-
-	// Set window title
-	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 
 	//Maybe some day events will be threaded? 
 	//pthread_t Ithread;
