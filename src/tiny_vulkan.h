@@ -382,12 +382,7 @@ u8 *UboDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset);
 #ifdef TINYENGINE_DEBUG
 #define VK_CHECK(call)\
 	do {\
-		ASSERT(call == VK_SUCCESS,"VK_CHECK: %s", GetVulkanResultString(call));\
-	} while (false)
-
-#define VK_MCHECK(call, message)\
-	do {\
-		ASSERT(call == VK_SUCCESS,"VK_MCHECK: %s | %s", GetVulkanResultString(call), message);\
+		ASSERT(call == VK_SUCCESS,"VK_CHECK %s: %s", #call, GetVulkanResultString(call));\
 	} while (false)
 #else
 //NOTE(Kyryl): 
@@ -396,7 +391,6 @@ u8 *UboDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset);
 //prevents compiler from getting rid of any function that was placed inside the macro
 //like so: VK_CHECK(VeriCoolFunc());
 #define VK_CHECK(call){VkResult a = call;};
-#define VK_MCHECK(call, message){VkResult a = call;};
 #endif
 
 
@@ -993,7 +987,7 @@ void ResetStagingBuffer()
 	CommandBufferBI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; 
 	CommandBufferBI.pInheritanceInfo = NULL;
 
-	VK_MCHECK(vkBeginCommandBuffer(StagingBuffer->CommandBuffer, &CommandBufferBI),"vkBeginCommandBuffer failed!");
+	VK_CHECK(vkBeginCommandBuffer(StagingBuffer->CommandBuffer, &CommandBufferBI));
 
 	StagingBuffer->Offset = 0;
 	StagingBuffer->Pending = false;
@@ -1250,7 +1244,7 @@ void *VkHostMalloc(VkDeviceSize Size, VkBuffer *Buffer, VkDeviceMemory *DeviceMe
 	BufferCI.queueFamilyIndexCount = 0;
 	BufferCI.pQueueFamilyIndices = NULL;
 
-	VK_MCHECK(vkCreateBuffer(LogicalDevice, &BufferCI, VkAllocators, Buffer), "vkCreateBuffer failed!");
+	VK_CHECK(vkCreateBuffer(LogicalDevice, &BufferCI, VkAllocators, Buffer));
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetBufferMemoryRequirements(LogicalDevice, *Buffer, &MemoryRequirements);
@@ -1266,12 +1260,12 @@ void *VkHostMalloc(VkDeviceSize Size, VkBuffer *Buffer, VkDeviceMemory *DeviceMe
 	MemoryAI.allocationSize = AlignedSize;
 	MemoryAI.memoryTypeIndex = MemoryTypeFromProperties(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
 
-	VK_MCHECK(vkAllocateMemory(LogicalDevice, &MemoryAI, VkAllocators, DeviceMemory), "vkAllocateMemory failed!");
+	VK_CHECK(vkAllocateMemory(LogicalDevice, &MemoryAI, VkAllocators, DeviceMemory));
 
-	VK_MCHECK(vkBindBufferMemory(LogicalDevice, *Buffer, *DeviceMemory, 0), "vkBindBufferMemory failed!");
+	VK_CHECK(vkBindBufferMemory(LogicalDevice, *Buffer, *DeviceMemory, 0));
 
 	void *Data;
-	VK_MCHECK(vkMapMemory(LogicalDevice, *DeviceMemory, 0, AlignedSize, 0, &Data),"vkMapMemory failed!");
+	VK_CHECK(vkMapMemory(LogicalDevice, *DeviceMemory, 0, AlignedSize, 0, &Data));
 
 	return Data;
 }
@@ -1318,7 +1312,7 @@ VkDeviceSize VkDeviceMalloc(VkDeviceSize Size, VkDeviceMemory *DeviceMemory, VkM
 	MemoryAI.allocationSize = Size;
 	MemoryAI.memoryTypeIndex = MemoryTypeFromProperties(MemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
 
-	VK_MCHECK(vkAllocateMemory(LogicalDevice, &MemoryAI, VkAllocators, DeviceMemory), "vkAllocateMemory failed!");
+	VK_CHECK(vkAllocateMemory(LogicalDevice, &MemoryAI, VkAllocators, DeviceMemory));
 	Heap = &DeviceHeaps[DeviceHeapCount];
 	Heap->DeviceMemory = *DeviceMemory;
 	Heap->Size = Size;
@@ -2480,7 +2474,7 @@ out:;
 		CommandBufferBI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; 
 		CommandBufferBI.pInheritanceInfo = NULL;
 
-		VK_MCHECK(vkBeginCommandBuffer(StagingBuffers[i].CommandBuffer, &CommandBufferBI),"vkBeginCommandBuffer failed!");
+		VK_CHECK(vkBeginCommandBuffer(StagingBuffers[i].CommandBuffer, &CommandBufferBI));
 		VK_CHECK(vkResetFences(LogicalDevice, 1, &StagingBuffers[i].Fence));
 	}
 	//STAGING BUFFERS
@@ -2780,7 +2774,7 @@ out:;
 void PostInit()
 {
 	//Sanity checks
-	MAX_FRAMES_IN_FLIGHT = 2;
+	MAX_FRAMES_IN_FLIGHT = SwchImageCount;
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_SEMAPHORES, "MAX_FRAMES_IN_FLIGHT > NUM_SEMAPHORES");
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_FENCES, "MAX_FRAMES_IN_FLIGHT > NUM_FENCES");
 
@@ -2830,7 +2824,6 @@ void VkBeginRendering()
 
 	//tell hardware to not wait more than 1 second.
 wait:
-	p("CurrentFrame: %d", CurrentFrame);
 	result = vkAcquireNextImageKHR(LogicalDevice, VkSwapchains[0], 1000000000, VkSignalSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndexes[CurrentFrame]);
 	switch( result )
 	{
@@ -2844,6 +2837,27 @@ wait:
 		goto wait;
 	case VK_ERROR_OUT_OF_DATE_KHR:
 		Info("VkBeginRendering: VK_ERROR_OUT_OF_DATE_KHR");
+		if(CurrentFrame != 0)
+		{
+			//cut end the frame cycle
+			vkResetFences(LogicalDevice, 1, &VkFences[0]);
+			SubmitInfo.waitSemaphoreCount = CurrentFrame;
+			SubmitInfo.commandBufferCount = CurrentFrame;
+			SubmitInfo.signalSemaphoreCount = CurrentFrame;
+			VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
+			vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
+			for(u32 i = 0; i < CurrentFrame; i++)
+			{
+				PresentInfo.pImageIndices = &ImageIndexes[i];
+				PresentInfo.pWaitSemaphores = &VkWaitSemaphores[i];
+				vkQueuePresentKHR(VkQueues[0], &PresentInfo);
+			}
+
+			SubmitInfo.waitSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
+			SubmitInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+			SubmitInfo.signalSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
+			CurrentFrame = 0;
+		}
 		RebuildRenderer();
 		goto wait;
 	default:
@@ -2851,7 +2865,6 @@ wait:
 		return;
 	}
 
-	p("Index %d", ImageIndexes[CurrentFrame]);
 	while(SubmitStagingBuffer()){/*nothing*/};
 
 	CommandBuffer = VkCommandBuffers[CurrentFrame];
@@ -2862,7 +2875,7 @@ wait:
 	CommandBufferBI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; 
 	CommandBufferBI.pInheritanceInfo = NULL;
 
-	VK_MCHECK(vkBeginCommandBuffer(CommandBuffer, &CommandBufferBI),"vkBeginCommandBuffer failed!");
+	VK_CHECK(vkBeginCommandBuffer(CommandBuffer, &CommandBufferBI));
 
 	VkRect2D RenderArea;
 	RenderArea.offset.x = 0;
@@ -2903,14 +2916,13 @@ void VkEndRendering()
 		CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 		return;
 	}
-	vkResetFences(LogicalDevice, MAX_FRAMES_IN_FLIGHT, &VkFences[0]);
+	vkResetFences(LogicalDevice, 1, &VkFences[0]);
 	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
 	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
 
 	for(u32 i = 0; i < CurrentFrame+1; i++)
 	{
 		PresentInfo.pImageIndices = &ImageIndexes[i];
-		p("%d", ImageIndexes[i]);
 		PresentInfo.pWaitSemaphores = &VkWaitSemaphores[i];
 		VkResult result = vkQueuePresentKHR(VkQueues[0], &PresentInfo);
 		switch(result)
@@ -2919,8 +2931,7 @@ void VkEndRendering()
 				continue;
 			case VK_ERROR_OUT_OF_DATE_KHR:
 				Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
-				RebuildRenderer();
-				return; 
+				continue;
 			default:
 				VK_CHECK(result);
 				return;
