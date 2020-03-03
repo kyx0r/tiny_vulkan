@@ -404,9 +404,13 @@ VkAllocationCallbacks Allocator;
 VkAllocationCallbacks *VkAllocators = &Allocator;
 VkInstance Instance;
 VkDebugReportCallbackEXT VulkanDebugCallback;
+VkQueryPool QueryPool;
 u32 CurrentFrame; 
 u8 ColorPalette[768];
 u32 U32Palette[256];
+f64 FrameCpuAvg = 0;
+f64 FrameGpuAvg = 0;
+f64 HighTime;
 //-----------------------------------------------------
 
 //Gpu init:
@@ -1178,8 +1182,8 @@ u8 *SampleTexture(u32 w, u32 h)
 		for(unsigned x = 0; x < w; x++)
 		{
 			u32 ByteIndex = (y * w + x);
-			s32 Color = (s32)(4 * ((1 + sin(2.0 * 6.28318531 * x / (double)w))
-						+ (1 + sin(2.0 * 6.28318531 * y / (double)h))) );
+			s32 Color = (s32)(4 * ((1 + sin(2.0 * 6.28318531 * x / (f64)w))
+						+ (1 + sin(2.0 * 6.28318531 * y / (f64)h))) );
 			Image[ByteIndex] |= (unsigned char)(Color << (0));
 		}
 	}
@@ -2816,6 +2820,19 @@ void PostInit()
 	PresentInfo.pSwapchains = &VkSwapchains[0];
 	PresentInfo.pImageIndices = &ImageIndexes[0];
 	PresentInfo.pWaitSemaphores = &VkWaitSemaphores[0];
+
+#ifdef TINYENGINE_DEBUG
+	//query pool;
+	VkQueryPoolCreateInfo QueryPoolCI;
+	QueryPoolCI.pNext = NULL;
+	QueryPoolCI.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+	QueryPoolCI.flags = 0;
+	QueryPoolCI.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	QueryPoolCI.queryCount = 128;
+	QueryPoolCI.pipelineStatistics = 0;
+	VK_CHECK(vkCreateQueryPool(LogicalDevice, &QueryPoolCI, VkAllocators, &QueryPool));
+#endif
+
 }
 
 void VkBeginRendering()
@@ -2877,6 +2894,11 @@ wait:
 
 	VK_CHECK(vkBeginCommandBuffer(CommandBuffer, &CommandBufferBI));
 
+#ifdef TINYENGINE_DEBUG
+	vkCmdResetQueryPool(CommandBuffer, QueryPool, 0, 128);
+	vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, QueryPool, 0);
+#endif
+
 	VkRect2D RenderArea;
 	RenderArea.offset.x = 0;
 	RenderArea.offset.y = 0;
@@ -2909,7 +2931,11 @@ wait:
 void VkEndRendering()
 {
 	vkCmdEndRenderPass(CommandBuffer);
+#ifdef TINYENGINE_DEBUG
+	vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, QueryPool, 1);
+#endif
 	VK_CHECK(vkEndCommandBuffer(CommandBuffer));
+
 
 	if(CurrentFrame != MAX_FRAMES_IN_FLIGHT-1)
 	{
@@ -2937,6 +2963,21 @@ void VkEndRendering()
 				return;
 		}
 	}
+#ifdef TINYENGINE_DEBUG
+	u64 QueryResults[2];
+	VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
+	                               sizeof(QueryResults), QueryResults, sizeof(QueryResults[0]), VK_QUERY_RESULT_64_BIT));
+
+	f64 FrameGpuBegin = (f64)QueryResults[0] * DeviceProperties.limits.timestampPeriod * 1e-6;
+	f64 FrameGpuEnd = (f64)QueryResults[1] * DeviceProperties.limits.timestampPeriod * 1e-6;
+	f64 FrameCpuEnd = Tiny_GetTime() * 1000;
+
+	FrameCpuAvg = FrameCpuAvg * 0.95 + (FrameCpuEnd - (HighTime*1000)) * 0.05;
+	FrameGpuAvg = FrameGpuAvg * 0.95 + (FrameGpuEnd - FrameGpuBegin) * 0.05;
+	HighTime = Tiny_GetTime();
+
+	p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
+#endif
 	CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	ASSERT(!CurrentFrame, "CurrentFrame != 0");
 	return;
