@@ -634,10 +634,10 @@ u32 ShaderCount;
 //SHADER RESOURCES
 typedef struct
 {
-	float pos[3];   // = vec3
-	float tex_coord[2]; // = vec2
-	float color[3]; // = vec3
-} Vertex;
+	f32 Xyz[3];   // = vec3
+	f32 UVs[2]; // = vec2
+	f32 Normals[3]; // = vec3
+} vertex_t;
 
 texture_t PixelTexture;
 //SHADER RESOURCES
@@ -1791,22 +1791,22 @@ void CreateShaderPipelines()
 
 	VkVertexInputBindingDescription VertexInputBD[1]; 
 	VertexInputBD[0].binding = 0;
-	VertexInputBD[0].stride = sizeof(Vertex);
+	VertexInputBD[0].stride = sizeof(vertex_t);
 	VertexInputBD[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
 	VkVertexInputAttributeDescription VertexInputAD[3];
 	VertexInputAD[0].binding = 0;
 	VertexInputAD[0].location = 0;
 	VertexInputAD[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-	VertexInputAD[0].offset = offsetof(Vertex, pos);
+	VertexInputAD[0].offset = offsetof(vertex_t, Xyz);
 	VertexInputAD[1].binding = 0;
 	VertexInputAD[1].location = 1;
 	VertexInputAD[1].format = VK_FORMAT_R32G32_SFLOAT;
-	VertexInputAD[1].offset = offsetof(Vertex, tex_coord);
+	VertexInputAD[1].offset = offsetof(vertex_t, UVs);
 	VertexInputAD[2].binding = 0;
 	VertexInputAD[2].location = 2;
 	VertexInputAD[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-	VertexInputAD[2].offset = offsetof(Vertex, color);
+	VertexInputAD[2].offset = offsetof(vertex_t, Normals);
 
 	VkPipelineVertexInputStateCreateInfo VertexInputStateCI[1];
 	VertexInputStateCI[0].sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -2983,9 +2983,9 @@ void VkEndRendering()
 	return;
 }
 
-void DrawBasic(u32 VertexCount, Vertex *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
+void DrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
 {
-	u32 VSize = sizeof(Vertex) * VertexCount;
+	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
 	u8 *Verts;
 	u8 *Index;
@@ -3033,9 +3033,9 @@ void DrawBasic(u32 VertexCount, Vertex *VertexBuffer, u32 IndexCount, u32 *Index
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
-void DrawTexture(u32 VertexCount, Vertex *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
+void DrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
 {
-	u32 VSize = sizeof(Vertex) * VertexCount;
+	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
 	u8 *Verts;
 	u8 *Index;

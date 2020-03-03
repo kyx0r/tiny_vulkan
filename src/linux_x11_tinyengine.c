@@ -103,7 +103,7 @@ static const char *level_names[] =
 };
 
 #ifdef LOG_USE_COLOR
-static const char *level_colors[] =
+static const char *level_Normalss[] =
 {
 	"\x1b[94m", "\x1b[36m", "\x1b[32m", "\x1b[33m", "\x1b[31m", "\x1b[35m", "\x1b[94m"
 };
@@ -159,7 +159,7 @@ void LogLog(s32 Level, const char *File, s32 Line, const char *Fmt, ...)
 			buf[strftime(buf, sizeof(buf), "%H:%M:%S", &lt)] = '\0';
 #ifdef LOG_USE_COLOR
 			FormatString(buf, "%s %s%-5s\x1b[0m \x1b[90m%s:%d:\x1b[0m ",
-					buf, level_colors[Level], level_names[Level], File, Line);
+					buf, level_Normalss[Level], level_names[Level], File, Line);
 			fputs(buf, stderr);
 #else
 			FormatString(buf, "%s %-5s %s:%d ", buf, level_names[Level], File, Line);
@@ -214,12 +214,12 @@ typedef struct linux_wnd
 	s32 Screen;
 	u32 Width;
 	u32 Height; 
-	u32 Xpos;
-	u32 Ypos;
+	u32 XXyz;
+	u32 YXyz;
 	u32 BorderWidth;
 	u32 Depth;
 	u32 ValueMask;
-	u32 IsExpose;
+	u32 IsExXyze;
 } linux_wnd;
 
 static linux_wnd Wnd;
@@ -396,11 +396,11 @@ int main(int argc, char** argv)
 	Wnd.RootWindow = RootWindow(Wnd.Display, DefaultScreen(Wnd.Display));
 	Wnd.Width = 640;
 	Wnd.Height = 480;
-	Wnd.Xpos = 0;
-	Wnd.Ypos = 0;
+	Wnd.XXyz = 0;
+	Wnd.YXyz = 0;
 	Wnd.BorderWidth = 0;
 	Wnd.Window = XCreateWindow(Wnd.Display, XRootWindow(Wnd.Display, Wnd.Screen),
-			Wnd.Xpos, Wnd.Ypos, Wnd.Width, Wnd.Height,
+			Wnd.XXyz, Wnd.YXyz, Wnd.Width, Wnd.Height,
 			Wnd.BorderWidth, Wnd.Depth, InputOutput,
 			DefaultVisual(Wnd.Display, Wnd.Screen),
 			Wnd.ValueMask, &Wnd.Attr);
@@ -451,63 +451,63 @@ int main(int argc, char** argv)
 
 		//DRAW commands go in between Begin and End respectively.
 
-		Vertex vertices[4];
-		vertices[0].pos[0] = -0.5f;   //x
-		vertices[0].pos[1] = -0.5f;   //y
-		vertices[0].pos[2] = 0.0f;    //z
-		vertices[0].color[0] = 1.0f; //r
-		vertices[0].color[1] = 0.0f; //g
-		vertices[0].color[2] = 0.0f; //b
-		vertices[0].tex_coord[0] = 1.0f;
-		vertices[0].tex_coord[1] = 0.0f;
+		vertex_t Vertices[4];
+		Vertices[0].Xyz[0] = -0.5f;   //x
+		Vertices[0].Xyz[1] = -0.5f;   //y
+		Vertices[0].Xyz[2] = 0.0f;    //z
+		Vertices[0].Normals[0] = 1.0f; //r
+		Vertices[0].Normals[1] = 0.0f; //g
+		Vertices[0].Normals[2] = 0.0f; //b
+		Vertices[0].UVs[0] = 1.0f;
+		Vertices[0].UVs[1] = 0.0f;
 
-		vertices[1].pos[0] = 0.5f;
-		vertices[1].pos[1] = -0.5f;
-		vertices[1].pos[2] = 0.0f;
-		vertices[1].color[0] = 0.0f;
-		vertices[1].color[1] = 1.0f;
-		vertices[1].color[2] = 0.0f;
-		vertices[1].tex_coord[0] = 0.0f;
-		vertices[1].tex_coord[1] = 0.0f;
+		Vertices[1].Xyz[0] = 0.5f;
+		Vertices[1].Xyz[1] = -0.5f;
+		Vertices[1].Xyz[2] = 0.0f;
+		Vertices[1].Normals[0] = 0.0f;
+		Vertices[1].Normals[1] = 1.0f;
+		Vertices[1].Normals[2] = 0.0f;
+		Vertices[1].UVs[0] = 0.0f;
+		Vertices[1].UVs[1] = 0.0f;
 
-		vertices[2].pos[0] = 0.5f;
-		vertices[2].pos[1] = 0.5f;
-		vertices[2].pos[2] = 0.0f;
-		vertices[2].color[0] = 0.0f;
-		vertices[2].color[1] = 0.0f;
-		vertices[2].color[2] = 1.0f;
-		vertices[2].tex_coord[0] = 0.0f;
-		vertices[2].tex_coord[1] = 1.0f;
+		Vertices[2].Xyz[0] = 0.5f;
+		Vertices[2].Xyz[1] = 0.5f;
+		Vertices[2].Xyz[2] = 0.0f;
+		Vertices[2].Normals[0] = 0.0f;
+		Vertices[2].Normals[1] = 0.0f;
+		Vertices[2].Normals[2] = 1.0f;
+		Vertices[2].UVs[0] = 0.0f;
+		Vertices[2].UVs[1] = 1.0f;
 
-		vertices[3].pos[0] = -0.5f;
-		vertices[3].pos[1] = 0.5f;
-		vertices[3].pos[2] = 0.0f;
-		vertices[3].color[0] = 1.0f;
-		vertices[3].color[1] = 1.0f;
-		vertices[3].color[2] = 1.0f;
-		vertices[3].tex_coord[0] = 1.0f;
-		vertices[3].tex_coord[1] = 1.0f;
+		Vertices[3].Xyz[0] = -0.5f;
+		Vertices[3].Xyz[1] = 0.5f;
+		Vertices[3].Xyz[2] = 0.0f;
+		Vertices[3].Normals[0] = 1.0f;
+		Vertices[3].Normals[1] = 1.0f;
+		Vertices[3].Normals[2] = 1.0f;
+		Vertices[3].UVs[0] = 1.0f;
+		Vertices[3].UVs[1] = 1.0f;
 
 		u32 indeces[6] = {0, 1, 2, 2, 3, 0};
-		DrawBasic(ArrayCount(vertices), &vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
+		DrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
 
-		vertices[0].pos[0] = -1.0f;   //x
-		vertices[0].pos[1] = -1.0f;   //y
-		vertices[0].pos[2] = 0.0f;    //z
+		Vertices[0].Xyz[0] = -1.0f;   //x
+		Vertices[0].Xyz[1] = -1.0f;   //y
+		Vertices[0].Xyz[2] = 0.0f;    //z
 
-		vertices[1].pos[0] = 1.0f;
-		vertices[1].pos[1] = -1.0f;
-		vertices[1].pos[2] = 0.0f;
+		Vertices[1].Xyz[0] = 1.0f;
+		Vertices[1].Xyz[1] = -1.0f;
+		Vertices[1].Xyz[2] = 0.0f;
 
-		vertices[2].pos[0] = 1.0f;
-		vertices[2].pos[1] = 1.0f;
-		vertices[2].pos[2] = 0.0f;
+		Vertices[2].Xyz[0] = 1.0f;
+		Vertices[2].Xyz[1] = 1.0f;
+		Vertices[2].Xyz[2] = 0.0f;
 
-		vertices[3].pos[0] = -1.0f;
-		vertices[3].pos[1] = 1.0f;
-		vertices[3].pos[2] = 0.0f;
+		Vertices[3].Xyz[0] = -1.0f;
+		Vertices[3].Xyz[1] = 1.0f;
+		Vertices[3].Xyz[2] = 0.0f;
 
-		DrawTexture(ArrayCount(vertices), &vertices[0], ArrayCount(indeces), &indeces[0], &Id2);
+		DrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id2);
 		VkEndRendering();
 	}
 
