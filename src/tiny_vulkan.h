@@ -853,33 +853,6 @@ void CreateSwchFrameBuffers()
 	}
 }
 
-VkImage 
-CreateImage(VkFormat Format, VkImageType Type, VkImageUsageFlags Usage, u32 Width, u32 Height)
-{
-	VkImage Img;
-	VkImageCreateInfo ImageCI;
-	ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	ImageCI.pNext = NULL;
-	ImageCI.flags = 0;
-	ImageCI.imageType = Type;
-	ImageCI.format = Format;
-	ImageCI.extent.width = Width;
-	ImageCI.extent.height = Height;
-	ImageCI.extent.depth = 1;
-	ImageCI.mipLevels = 1;
-	ImageCI.arrayLayers = 1;
-	ImageCI.samples = VK_SAMPLE_COUNT_1_BIT;
-	ImageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-	ImageCI.usage = Usage;
-	ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	ImageCI.queueFamilyIndexCount = 0;
-	ImageCI.pQueueFamilyIndices = NULL;
-	ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	VK_CHECK(vkCreateImage(LogicalDevice, &ImageCI, VkAllocators, &Img));
-	return Img;
-}
-
 unsigned *Tex8To32(u8 *In, s32 Pixels, u32 *Usepal)
 {
 	unsigned *Out, *Data;
@@ -944,7 +917,25 @@ void CreateHostTexture(texture_t *Texture)
 	ASSERT(Texture->Width, "");
 	ASSERT(Texture->Height, "");
 
-	Texture->Image = CreateImage(Texture->Format, Texture->ImageType, Texture->Usage, Texture->Width, Texture->Height);
+	VkImageCreateInfo ImageCI;
+	ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	ImageCI.pNext = NULL;
+	ImageCI.flags = 0;
+	ImageCI.imageType = Texture->ImageType;
+	ImageCI.format = Texture->Format;
+	ImageCI.extent.width = Texture->Width;
+	ImageCI.extent.height = Texture->Height;
+	ImageCI.extent.depth = 1;
+	ImageCI.mipLevels = 1;
+	ImageCI.arrayLayers = 1;
+	ImageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+	ImageCI.tiling = VK_IMAGE_TILING_LINEAR;
+	ImageCI.usage = Texture->Usage;
+	ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	ImageCI.queueFamilyIndexCount = 0;
+	ImageCI.pQueueFamilyIndices = NULL;
+	ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VK_CHECK(vkCreateImage(LogicalDevice, &ImageCI, VkAllocators, &Texture->Image));
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetImageMemoryRequirements(LogicalDevice, Texture->Image, &MemoryRequirements);
@@ -959,7 +950,7 @@ void CreateHostTexture(texture_t *Texture)
 	VK_CHECK(vkBindImageMemory(LogicalDevice, Texture->Image, Texture->DeviceMemory, 0));
 	Texture->Mapped = true;
 	void *Data;
-	vkMapMemory(LogicalDevice, Texture->DeviceMemory, 0, VK_WHOLE_SIZE, 0, &Data);
+	VK_CHECK(vkMapMemory(LogicalDevice, Texture->DeviceMemory, 0, VK_WHOLE_SIZE, 0, &Data));
 	if(Texture->Data)
 	{
 		memcpy(Data, Texture->Data, MemoryRequirements.size);
@@ -1034,7 +1025,25 @@ void CreateTexture(texture_t *Texture)
 	ASSERT(Texture->Width, "");
 	ASSERT(Texture->Height, "");
 
-	Texture->Image = CreateImage(Texture->Format, Texture->ImageType, Texture->Usage, Texture->Width, Texture->Height);
+	VkImageCreateInfo ImageCI;
+	ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	ImageCI.pNext = NULL;
+	ImageCI.flags = 0;
+	ImageCI.imageType = Texture->ImageType;
+	ImageCI.format = Texture->Format;
+	ImageCI.extent.width = Texture->Width;
+	ImageCI.extent.height = Texture->Height;
+	ImageCI.extent.depth = 1;
+	ImageCI.mipLevels = 1;
+	ImageCI.arrayLayers = 1;
+	ImageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+	ImageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+	ImageCI.usage = Texture->Usage;
+	ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	ImageCI.queueFamilyIndexCount = 0;
+	ImageCI.pQueueFamilyIndices = NULL;
+	ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VK_CHECK(vkCreateImage(LogicalDevice, &ImageCI, VkAllocators, &Texture->Image));
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetImageMemoryRequirements(LogicalDevice, Texture->Image, &MemoryRequirements);
@@ -1219,9 +1228,26 @@ void CreateDepthBuffer()
 		DestroyDepthBuffer();
 	}
 
-	DepthBuffer = CreateImage
-	(DepthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-	 SwchImageSize.width, SwchImageSize.height);
+	VkImageCreateInfo ImageCI;
+	ImageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	ImageCI.pNext = NULL;
+	ImageCI.flags = 0;
+	ImageCI.imageType = VK_IMAGE_TYPE_2D;
+	ImageCI.format = DepthFormat;
+	ImageCI.extent.width = SwchImageSize.width;
+	ImageCI.extent.height = SwchImageSize.height;
+	ImageCI.extent.depth = 1;
+	ImageCI.mipLevels = 1;
+	ImageCI.arrayLayers = 1;
+	ImageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+	ImageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+	ImageCI.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	ImageCI.queueFamilyIndexCount = 0;
+	ImageCI.pQueueFamilyIndices = NULL;
+	ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	VK_CHECK(vkCreateImage(LogicalDevice, &ImageCI, VkAllocators, &DepthBuffer));
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetImageMemoryRequirements(LogicalDevice, DepthBuffer, &MemoryRequirements);
