@@ -153,6 +153,7 @@ DEVICE_LEVEL_VULKAN_FUNCTION( vkCreateQueryPool )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdWriteTimestamp )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdResetQueryPool )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkGetQueryPoolResults )
+DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdBlitImage )
 #undef DEVICE_LEVEL_VULKAN_FUNCTION
 
 //
@@ -311,6 +312,7 @@ PFN_vkCreateQueryPool vkCreateQueryPool;
 PFN_vkCmdWriteTimestamp vkCmdWriteTimestamp;
 PFN_vkCmdResetQueryPool vkCmdResetQueryPool;
 PFN_vkGetQueryPoolResults vkGetQueryPoolResults;
+PFN_vkCmdBlitImage vkCmdBlitImage;
 //---
 
 //DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION
@@ -497,10 +499,11 @@ VkDescriptorSet FragSamplerDescriptorSet;
 u32 TextureCount;
 typedef struct texture_t
 {
-	u8 *Data;
+	void *Data;
 	u32 Width;
 	u32 Height;
-	u32 HeapIndex;
+	b32 Mapped;
+	VkDeviceMemory DeviceMemory;
 	VkImage Image;
 	VkImageView ImageView;
 //May get rid of these later, waste of memory possibly.
@@ -877,10 +880,64 @@ CreateImage(VkFormat Format, VkImageType Type, VkImageUsageFlags Usage, u32 Widt
 	return Img;
 }
 
-void CreateTexture(texture_t *Texture)
+unsigned *Tex8To32(u8 *In, s32 Pixels, u32 *Usepal)
+{
+	unsigned *Out, *Data;
+	Out = Data = (unsigned *) Tiny_Malloc(Pixels*4);
+	for (s32 i = 0; i < Pixels; i++)
+	{
+		*Out++ = Usepal[*In++];
+	}
+	Tiny_Free(In);
+	return Data;
+}
+
+u8 *SampleTexture(u32 w, u32 h)
+{
+	//generate some image
+	u8 *Image = (u8*)Tiny_Malloc(w * h);
+	for(unsigned y = 0; y < h; y++)
+	{
+		for(unsigned x = 0; x < w; x++)
+		{
+			u32 ByteIndex = (y * w + x);
+			s32 Color = (s32)(4 * ((1 + sin(2.0 * 6.28318531 * x / (f64)w))
+						+ (1 + sin(2.0 * 6.28318531 * y / (f64)h))) );
+			Image[ByteIndex] = (u8)(Color);
+		}
+	}
+	Image = (u8*)Tex8To32(Image, (w * h), U32Palette);
+	return Image;
+}
+
+void GenerateColorPalette()
+{
+	u8* dst = ColorPalette;
+	for(int i = 0; i < 256; i++)
+	{
+		unsigned char r = 127 * (1 + sin(5 * i * 6.28318531 / 16));
+		unsigned char g = 127 * (1 + sin(2 * i * 6.28318531 / 16));
+		unsigned char b = 127 * (1 + sin(3 * i * 6.28318531 / 16));
+		*dst++ = r;
+		*dst++ = g;
+		*dst++ = b;
+	}
+
+	dst = (u8*)U32Palette;
+	unsigned char* src = ColorPalette;
+	for (int i = 0; i < 256; i++)
+	{
+		*dst++ = *src++;
+		*dst++ = *src++;
+		*dst++ = *src++;
+		*dst++ = 255;
+	}
+
+}
+
+void CreateHostTexture(texture_t *Texture)
 {
 	ASSERT(TextureCount < NUM_TEXTURES, "TextureCount > NUM_TEXTURES");
-	ASSERT(Texture->Data, "");
 	ASSERT(Texture->ImageType, "");
 	ASSERT(Texture->Usage, "");
 	ASSERT(Texture->Format, "");
@@ -891,11 +948,23 @@ void CreateTexture(texture_t *Texture)
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetImageMemoryRequirements(LogicalDevice, Texture->Image, &MemoryRequirements);
-	Texture->HeapIndex = DeviceHeapCount;
 
-	VkDeviceMemory DeviceMemory;
-	VkDeviceSize Offset = VkDeviceMalloc(MemoryRequirements.size, &DeviceMemory, MemoryRequirements);
-	VK_CHECK(vkBindImageMemory(LogicalDevice, Texture->Image, DeviceMemory, Offset));
+	VkMemoryAllocateInfo MemoryAI;
+	MemoryAI.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	MemoryAI.pNext = NULL;
+	MemoryAI.allocationSize = MemoryRequirements.size;
+	MemoryAI.memoryTypeIndex = MemoryTypeFromProperties(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	VK_CHECK(vkAllocateMemory(LogicalDevice, &MemoryAI, VkAllocators, &Texture->DeviceMemory));
+	VK_CHECK(vkBindImageMemory(LogicalDevice, Texture->Image, Texture->DeviceMemory, 0));
+	Texture->Mapped = true;
+	void *Data;
+	vkMapMemory(LogicalDevice, Texture->DeviceMemory, 0, VK_WHOLE_SIZE, 0, &Data);
+	if(Texture->Data)
+	{
+		memcpy(Data, Texture->Data, MemoryRequirements.size);
+	}
+	Texture->Data = Data;
 
 	VkImageViewCreateInfo ImageViewCI;
 	ImageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -915,12 +984,90 @@ void CreateTexture(texture_t *Texture)
 
 	ImageViewCI.image = Texture->Image;
 	VK_CHECK(vkCreateImageView(LogicalDevice, &ImageViewCI, VkAllocators, &Texture->ImageView));
+	memcpy(&TexturePool[TextureCount], Texture, sizeof(texture_t));
+	TextureCount++;
+
+}
+
+void UpdateHostTexture(texture_t *Texture)
+{
+	ASSERT(CommandBuffer, "Must be called in recording state");
+	ASSERT(Texture->Image, "");
+	ASSERT(Texture->Data, "");
+
+	VkImageMemoryBarrier MemBarrier;
+	MemBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	MemBarrier.pNext = NULL;
+	MemBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+	MemBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	MemBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	MemBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	MemBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	MemBarrier.image = Texture->Image;
+	MemBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	MemBarrier.subresourceRange.baseMipLevel = 0;
+	MemBarrier.subresourceRange.levelCount = 1;
+	MemBarrier.subresourceRange.baseArrayLayer = 0;
+	MemBarrier.subresourceRange.layerCount = 1;
+	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
+
+}
+
+void UpdateHostTextures()
+{
+	for(u32 i = 0; i < TextureCount; i++)
+	{
+		if(TexturePool[i].Mapped)
+		{
+			UpdateHostTexture(&TexturePool[i]);
+		}
+	}
+}
+
+void CreateTexture(texture_t *Texture)
+{
+	ASSERT(TextureCount < NUM_TEXTURES, "TextureCount > NUM_TEXTURES");
+	ASSERT(Texture->ImageType, "");
+	ASSERT(Texture->Usage, "");
+	ASSERT(Texture->Format, "");
+	ASSERT(Texture->Width, "");
+	ASSERT(Texture->Height, "");
+
+	Texture->Image = CreateImage(Texture->Format, Texture->ImageType, Texture->Usage, Texture->Width, Texture->Height);
+
+	VkMemoryRequirements MemoryRequirements;
+	vkGetImageMemoryRequirements(LogicalDevice, Texture->Image, &MemoryRequirements);
+
+	VkDeviceSize Offset = VkDeviceMalloc(MemoryRequirements.size, &Texture->DeviceMemory, MemoryRequirements);
+	VK_CHECK(vkBindImageMemory(LogicalDevice, Texture->Image, Texture->DeviceMemory, Offset));
+
+	VkImageViewCreateInfo ImageViewCI;
+	ImageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	ImageViewCI.pNext = NULL;
+	ImageViewCI.flags = 0;
+	ImageViewCI.viewType = Texture->ImageViewType;
+	ImageViewCI.format = Texture->Format;
+	ImageViewCI.components.r = VK_COMPONENT_SWIZZLE_R;
+	ImageViewCI.components.g = VK_COMPONENT_SWIZZLE_G;
+	ImageViewCI.components.b = VK_COMPONENT_SWIZZLE_B;
+	ImageViewCI.components.a = VK_COMPONENT_SWIZZLE_A;
+	ImageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	ImageViewCI.subresourceRange.baseMipLevel = 0;
+	ImageViewCI.subresourceRange.levelCount = 1;
+	ImageViewCI.subresourceRange.baseArrayLayer = 0;
+	ImageViewCI.subresourceRange.layerCount = 1;
+
+	ImageViewCI.image = Texture->Image;
+	VK_CHECK(vkCreateImageView(LogicalDevice, &ImageViewCI, VkAllocators, &Texture->ImageView));
+	memcpy(&TexturePool[TextureCount], Texture, sizeof(texture_t));
 	TextureCount++;
 }
 
 void UploadTexture(texture_t *Texture)
 {
 	ASSERT(Texture->Data, "UploadTexture: Texture->Data == NULL");
+	ASSERT(Texture->ImageView, "UploadTexture: Texture->ImageView == NULL");
 
 	staging_t *StagingBuffer = &StagingBuffers[StagingIndex];
 
@@ -1027,7 +1174,7 @@ b32 SubmitStagingBuffer()
 	BufferMemBarrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
 	vkCmdPipelineBarrier(StagingBuffer->CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, &BufferMemBarrier, 0, NULL, 0, NULL);
 
-	vkEndCommandBuffer(StagingBuffer->CommandBuffer);
+	VK_CHECK(vkEndCommandBuffer(StagingBuffer->CommandBuffer));
 
 	//TODO(Kyryl): Check, I think this flush is optional on integrated GPUs.
 	VkMappedMemoryRange MemRange;
@@ -1049,7 +1196,7 @@ b32 SubmitStagingBuffer()
 	SubmitInfo.signalSemaphoreCount = 0;
 	SubmitInfo.pSignalSemaphores = NULL;
 
-	vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, StagingBuffer->Fence);
+	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, StagingBuffer->Fence));
 
 	StagingBuffer->Submitted = true;
 	StagingIndex++;
@@ -1072,7 +1219,9 @@ void CreateDepthBuffer()
 		DestroyDepthBuffer();
 	}
 
-	DepthBuffer = CreateImage(DepthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, SwchImageSize.width, SwchImageSize.height);
+	DepthBuffer = CreateImage
+	(DepthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	 SwchImageSize.width, SwchImageSize.height);
 
 	VkMemoryRequirements MemoryRequirements;
 	vkGetImageMemoryRequirements(LogicalDevice, DepthBuffer, &MemoryRequirements);
@@ -1136,60 +1285,6 @@ s32 MemoryTypeFromProperties(u32 type_bits, VkFlags requirements_mask, VkFlags p
 	return 0;
 }
 
-void GenerateColorPalette()
-{
-	u8* dst = ColorPalette;
-	for(int i = 0; i < 256; i++)
-	{
-		unsigned char r = 127 * (1 + sin(5 * i * 6.28318531 / 16));
-		unsigned char g = 127 * (1 + sin(2 * i * 6.28318531 / 16));
-		unsigned char b = 127 * (1 + sin(3 * i * 6.28318531 / 16));
-		*dst++ = r;
-		*dst++ = g;
-		*dst++ = b;
-	}
-
-	dst = (u8*)U32Palette;
-	unsigned char* src = ColorPalette;
-	for (int i = 0; i < 256; i++)
-	{
-		*dst++ = *src++;
-		*dst++ = *src++;
-		*dst++ = *src++;
-		*dst++ = 255;
-	}
-
-}
-
-unsigned *Tex8To32(u8 *In, s32 Pixels, u32 *Usepal)
-{
-	unsigned *Out, *Data;
-	Out = Data = (unsigned *) Tiny_Malloc(Pixels*4);
-	for (s32 i = 0; i < Pixels; i++)
-	{
-		*Out++ = Usepal[*In++];
-	}
-	Tiny_Free(In);
-	return Data;
-}
-
-u8 *SampleTexture(u32 w, u32 h)
-{
-	//generate some image
-	u8 *Image = (u8*)Tiny_Malloc(w * h);
-	for(unsigned y = 0; y < h; y++)
-	{
-		for(unsigned x = 0; x < w; x++)
-		{
-			u32 ByteIndex = (y * w + x);
-			s32 Color = (s32)(4 * ((1 + sin(2.0 * 6.28318531 * x / (f64)w))
-						+ (1 + sin(2.0 * 6.28318531 * y / (f64)h))) );
-			Image[ByteIndex] |= (unsigned char)(Color << (0));
-		}
-	}
-	Image = (u8*)Tex8To32(Image, (w * h), U32Palette);
-	return Image;
-}
 
 //NOTE(Kyryl):
 //These tiny allocators are designed for permanent objects.
@@ -2433,6 +2528,7 @@ out:;
 	VK_CHECK(vkAllocateCommandBuffers(LogicalDevice, &CommandBufferAI, &VkCommandBuffers[0]));
 
 	ASSERT(NUM_COMMAND_BUFFERS > SwchImageCount+1, "More command buffers needed, increase NUM_COMMAND_BUFFERS");
+	CommandBuffer = VkCommandBuffers[0];
 
 
 	//MEMORY
@@ -2462,7 +2558,7 @@ out:;
 	{
 		//Is not managed by SGM because it does not need to be.
 		//Memory is freed on buffer reset, so no need to do any explicit management.
-		StagingBuffers[i].Size = 41943040; //4096 * 1024
+		StagingBuffers[i].Size = 16777216; //4096 * 4096
 		StagingBuffers[i].Data = VkHostMalloc(StagingBuffers[i].Size, &StagingBuffers[i].Buffer, &StagingBuffers[i].DeviceMemory,
 				VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -2611,19 +2707,17 @@ out:;
 	WriteDS.dstSet = FragUniformDescriptorSet;
 	vkUpdateDescriptorSets(LogicalDevice, 1, &WriteDS, 0, NULL);
 
-	//Create a 2d texture to serve as pixel buffer. 
-	//Implements an ability to write pixels directly to the screen.
-	GenerateColorPalette(); //misc
-
+	GenerateColorPalette();
 	PixelTexture.Data = SampleTexture(SwchImageSize.width, SwchImageSize.height);
 	PixelTexture.Width = SwchImageSize.width;
 	PixelTexture.Height = SwchImageSize.height;
 	PixelTexture.ImageType = VK_IMAGE_TYPE_2D;
 	PixelTexture.ImageViewType = VK_IMAGE_VIEW_TYPE_2D;
-	PixelTexture.Format = SwchImageFormat;
+	PixelTexture.Format = VK_FORMAT_R8G8B8A8_UNORM;
 	PixelTexture.Usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-	CreateTexture(&PixelTexture);
+	CreateHostTexture(&PixelTexture);
+	//CreateTexture(&PixelTexture);
 
 	VkDescriptorImageInfo DescriptorII;
 	DescriptorII.sampler = PointSampler;
@@ -2636,7 +2730,7 @@ out:;
 	WriteDS.dstSet = FragSamplerDescriptorSet;
 	vkUpdateDescriptorSets(LogicalDevice, 1, &WriteDS, 0, NULL);
 
-	UploadTexture(&PixelTexture);
+	//UploadTexture(&PixelTexture);
 
 	//End DESCRIPTOR SETS
 
@@ -2645,17 +2739,17 @@ out:;
 	// Find depth format
 	VkFormatProperties FormatProperties;
 	vkGetPhysicalDeviceFormatProperties(GpuDevice, VK_FORMAT_X8_D24_UNORM_PACK32, &FormatProperties);
-	b32 x8_d24_support = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+	b32 X8_d24_support = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
 	vkGetPhysicalDeviceFormatProperties(GpuDevice, VK_FORMAT_D32_SFLOAT, &FormatProperties);
-	b32 d32_support = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+	b32 D32_support = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
 
 	DepthFormat = VK_FORMAT_D16_UNORM;
-	if (x8_d24_support)
+	if (X8_d24_support)
 	{
 		Trace("Using X8_D24 depth buffer format");
 		DepthFormat = VK_FORMAT_X8_D24_UNORM_PACK32;
 	}
-	else if(d32_support)
+	else if(D32_support)
 	{
 		Trace("Using D32 depth buffer format");
 		DepthFormat = VK_FORMAT_D32_SFLOAT;
@@ -2664,6 +2758,21 @@ out:;
 	CreateDepthBuffer();
 
 	//End DEPTH BUFFER
+
+	//OTHER FEATURES
+	b32 BlitSupport = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) != 0;
+	if(!BlitSupport)
+	{
+		Fatal("Device does not support VK_FORMAT_FEATURE_BLIT_SRC_BIT.");
+		abort();
+	}
+	BlitSupport = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
+	if(!BlitSupport)
+	{
+		Fatal("Device does not support VK_FORMAT_FEATURE_BLIT_DST_BIT.");
+		abort();
+	}
+	//End OTHER FEATURES
 
 	//Renderpass
 	VkAttachmentDescription Attachments[2];
@@ -2835,6 +2944,76 @@ void PostInit()
 
 }
 
+//NOTE(Kyryl): 
+//Currently not used for anything but you can
+//use this to blit to the screen or vise versa, aka screenshot.
+void BlitSurface()
+{
+
+	VkImageMemoryBarrier MemBarrier;
+	MemBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	MemBarrier.pNext = NULL;
+	MemBarrier.srcAccessMask = 0;
+	MemBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	MemBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	MemBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	MemBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	MemBarrier.image = VkSwchImages[ImageIndexes[CurrentFrame]];
+	MemBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	MemBarrier.subresourceRange.baseMipLevel = 0;
+	MemBarrier.subresourceRange.levelCount = 1;
+	MemBarrier.subresourceRange.baseArrayLayer = 0;
+	MemBarrier.subresourceRange.layerCount = 1;
+	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
+
+	MemBarrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	MemBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	MemBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	MemBarrier.image = PixelTexture.Image;
+	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
+
+	VkImageBlit imageBlitRegion;
+	imageBlitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageBlitRegion.srcSubresource.mipLevel = 0;
+	imageBlitRegion.srcSubresource.baseArrayLayer = 0;
+	imageBlitRegion.srcSubresource.layerCount = 1;
+	imageBlitRegion.srcOffsets[0].x = 0;
+	imageBlitRegion.srcOffsets[0].y = 0;
+	imageBlitRegion.srcOffsets[0].z = 0;
+	imageBlitRegion.srcOffsets[1].x = PixelTexture.Width;
+	imageBlitRegion.srcOffsets[1].y = PixelTexture.Height;
+	imageBlitRegion.srcOffsets[1].z = 1;
+	imageBlitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageBlitRegion.dstSubresource.mipLevel = 0;
+	imageBlitRegion.dstSubresource.baseArrayLayer = 0;
+	imageBlitRegion.dstSubresource.layerCount = 1;
+	imageBlitRegion.dstOffsets[0].x = 0;
+	imageBlitRegion.dstOffsets[0].y = 0;
+	imageBlitRegion.dstOffsets[0].z = 0;
+	imageBlitRegion.dstOffsets[1].x = SwchImageSize.width;
+	imageBlitRegion.dstOffsets[1].y = SwchImageSize.height;
+	imageBlitRegion.dstOffsets[1].z = 1;
+
+	vkCmdBlitImage
+		(CommandBuffer,
+		 PixelTexture.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		 VkSwchImages[ImageIndexes[CurrentFrame]], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		 1,
+		 &imageBlitRegion,
+		 VK_FILTER_LINEAR);
+
+	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	MemBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
+
+	MemBarrier.image = VkSwchImages[ImageIndexes[CurrentFrame]];
+	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	MemBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
+}
+
 void VkBeginRendering()
 {
 	VkResult result;
@@ -2894,6 +3073,8 @@ wait:
 
 	VK_CHECK(vkBeginCommandBuffer(CommandBuffer, &CommandBufferBI));
 
+	UpdateHostTextures();
+
 #ifdef TINYENGINE_DEBUG
 	vkCmdResetQueryPool(CommandBuffer, QueryPool, 0, 128);
 	vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, QueryPool, 0);
@@ -2931,6 +3112,7 @@ wait:
 void VkEndRendering()
 {
 	vkCmdEndRenderPass(CommandBuffer);
+
 #ifdef TINYENGINE_DEBUG
 	vkCmdWriteTimestamp(CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, QueryPool, 1);
 #endif
@@ -3082,6 +3264,18 @@ void DrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[1]);
 	vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelineLayouts[1], 2, 1, &FragSamplerDescriptorSet, 0, NULL);
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
+}
+
+
+void SetPixel32(u32 X, u32 Y, u32 Pixel) 
+{
+	if (X >= PixelTexture.Width || Y >= PixelTexture.Height) 
+	{
+		return;
+	}
+	u32 *Data = (u32*)PixelTexture.Data;
+	Data = &Data[(Y * PixelTexture.Width) + X];
+	*Data = Pixel;
 }
 
 #endif
