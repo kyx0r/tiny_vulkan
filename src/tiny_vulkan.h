@@ -154,6 +154,7 @@ DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdWriteTimestamp )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdResetQueryPool )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkGetQueryPoolResults )
 DEVICE_LEVEL_VULKAN_FUNCTION( vkCmdBlitImage )
+DEVICE_LEVEL_VULKAN_FUNCTION( vkGetImageSubresourceLayout )
 #undef DEVICE_LEVEL_VULKAN_FUNCTION
 
 //
@@ -313,6 +314,7 @@ PFN_vkCmdWriteTimestamp vkCmdWriteTimestamp;
 PFN_vkCmdResetQueryPool vkCmdResetQueryPool;
 PFN_vkGetQueryPoolResults vkGetQueryPoolResults;
 PFN_vkCmdBlitImage vkCmdBlitImage;
+PFN_vkGetImageSubresourceLayout vkGetImageSubresourceLayout;
 //---
 
 //DEVICE_LEVEL_VULKAN_FUNCTION_FROM_EXTENSION
@@ -503,10 +505,10 @@ typedef struct texture_t
 	u32 Width;
 	u32 Height;
 	b32 Mapped;
+	VkSubresourceLayout SubresourceLayout;
 	VkDeviceMemory DeviceMemory;
 	VkImage Image;
 	VkImageView ImageView;
-//May get rid of these later, waste of memory possibly.
 	VkImageType ImageType;
 	VkImageViewType ImageViewType;
 	VkFormat Format;
@@ -975,6 +977,13 @@ void CreateHostTexture(texture_t *Texture)
 
 	ImageViewCI.image = Texture->Image;
 	VK_CHECK(vkCreateImageView(LogicalDevice, &ImageViewCI, VkAllocators, &Texture->ImageView));
+
+	VkImageSubresource Subresource;
+	Subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	Subresource.mipLevel = 0;
+	Subresource.arrayLayer = 0;
+	vkGetImageSubresourceLayout(LogicalDevice, Texture->Image, &Subresource, &Texture->SubresourceLayout);
+
 	memcpy(&TexturePool[TextureCount], Texture, sizeof(texture_t));
 	TextureCount++;
 
@@ -2624,8 +2633,8 @@ out:;
 	SamplerCI.maxAnisotropy = 1.0f;
 	SamplerCI.compareEnable = 0;
 	SamplerCI.compareOp = 0;
-	SamplerCI.minLod = 0;
-	SamplerCI.maxLod = 0.25f;
+	SamplerCI.minLod = 0.0f;
+	SamplerCI.maxLod = 0.0f;
 	SamplerCI.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
 	SamplerCI.unnormalizedCoordinates = VK_FALSE;
 
@@ -2646,7 +2655,7 @@ out:;
 	DescriptorPoolCI.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	DescriptorPoolCI.pNext = NULL;
 	DescriptorPoolCI.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-	DescriptorPoolCI.maxSets = 2048 + 32;
+	DescriptorPoolCI.maxSets = 2080; //2048 + 32
 	DescriptorPoolCI.poolSizeCount = 2;
 	DescriptorPoolCI.pPoolSizes = PoolSize;
 	VK_CHECK(vkCreateDescriptorPool(LogicalDevice, &DescriptorPoolCI, VkAllocators, &DescriptorPool));
@@ -2734,7 +2743,7 @@ out:;
 	vkUpdateDescriptorSets(LogicalDevice, 1, &WriteDS, 0, NULL);
 
 	GenerateColorPalette();
-	PixelTexture.Data = SampleTexture(SwchImageSize.width, SwchImageSize.height);
+	PixelTexture.Data = NULL; //SampleTexture(SwchImageSize.width, SwchImageSize.height);
 	PixelTexture.Width = SwchImageSize.width;
 	PixelTexture.Height = SwchImageSize.height;
 	PixelTexture.ImageType = VK_IMAGE_TYPE_2D;
@@ -3292,7 +3301,6 @@ void DrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
-
 void SetPixel32(u32 X, u32 Y, u32 Pixel) 
 {
 	if (X >= PixelTexture.Width || Y >= PixelTexture.Height) 
@@ -3302,6 +3310,44 @@ void SetPixel32(u32 X, u32 Y, u32 Pixel)
 	u32 *Data = (u32*)PixelTexture.Data;
 	Data = &Data[(Y * PixelTexture.Width) + X];
 	*Data = Pixel;
+}
+
+void PixCircle(int32_t CentreX, int32_t CentreY, int32_t Radius, uint32_t Color)
+{
+	const int32_t diameter = (Radius * 2);
+
+	int32_t x = (Radius - 1);
+	int32_t y = 0;
+	int32_t tx = 1;
+	int32_t ty = 1;
+	int32_t error = (tx - diameter);
+
+	while (x >= y)
+	{
+		//  Each of the following renders an octant of the circle
+		SetPixel32(CentreX + x, CentreY - y, Color);
+		SetPixel32(CentreX + x, CentreY + y, Color);
+		SetPixel32(CentreX - x, CentreY - y, Color);
+		SetPixel32(CentreX - x, CentreY + y, Color);
+		SetPixel32(CentreX + y, CentreY - x, Color);
+		SetPixel32(CentreX + y, CentreY + x, Color);
+		SetPixel32(CentreX - y, CentreY - x, Color);
+		SetPixel32(CentreX - y, CentreY + x, Color);
+
+		if (error <= 0)
+		{
+			++y;
+			error += ty;
+			ty += 2;
+		}
+
+		if (error > 0)
+		{
+			--x;
+			tx += 2;
+			error += (tx - diameter);
+		}
+	}
 }
 
 #endif

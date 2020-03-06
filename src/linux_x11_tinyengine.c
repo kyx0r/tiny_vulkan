@@ -452,6 +452,8 @@ int main(int argc, char** argv)
 		//DRAW commands go in between Begin and End respectively.
 
 		vertex_t Vertices[4];
+		u32 indeces[6] = {0, 1, 2, 2, 3, 0};
+
 		Vertices[0].Xyz[0] = -0.5f;   //x
 		Vertices[0].Xyz[1] = -0.5f;   //y
 		Vertices[0].Xyz[2] = 0.0f;    //z
@@ -488,17 +490,9 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 1.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		u32 indeces[6] = {0, 1, 2, 2, 3, 0};
 		DrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
 
-//		for(int i = 0; i < 50; i++)
-//		{
-//			SetPixel32(i, 100, 0xFF00FF00);
-//		}
-//		SetPixel32(0, 0, 0x00000000);
-//		SetPixel32(1000, 0, 0xFF00FF00);
-		//SetPixel32(0, 100, 0xFF0000FF);
-		//SetPixel32(100, 100, 0xFFFFFFFF);
+		PixCircle(100, 100, 50, 0xFFFFFFFF);
 
 		Vertices[0].Xyz[0] = -1.0f;   //x
 		Vertices[0].Xyz[1] = -1.0f;   //y
@@ -515,13 +509,13 @@ int main(int argc, char** argv)
 		Vertices[2].Xyz[0] = 1.0f;
 		Vertices[2].Xyz[1] = 1.0f;
 		Vertices[2].Xyz[2] = 0.0f;
-		Vertices[2].UVs[0] = 0.0f;
+		Vertices[2].UVs[0] = 1.0f;
 		Vertices[2].UVs[1] = 1.0f;
 
 		Vertices[3].Xyz[0] = -1.0f;
 		Vertices[3].Xyz[1] = 1.0f;
 		Vertices[3].Xyz[2] = 0.0f;
-		Vertices[3].UVs[0] = 1.0f;
+		Vertices[3].UVs[0] = 0.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
 		DrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id2);
