@@ -443,6 +443,7 @@ int main(int argc, char** argv)
 
 	u32 Id1 = 0;
 	u32 Id2 = 0;
+	u32 Id3 = 0;
 	while (1) 
 	{
 		ProcessEvents();
@@ -490,9 +491,9 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 1.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		DrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
+		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
 
-		PixCircle(100, 100, 50, 0xFFFFFFFF);
+		DrawPixCircle(800, 500, 50, 0xFFFFFFFF);
 
 		Vertices[0].Xyz[0] = -1.0f;   //x
 		Vertices[0].Xyz[1] = -1.0f;   //y
@@ -518,7 +519,24 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 0.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		DrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id2);
+		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &Id2);
+
+		vertex_t Line[2];
+		Line[0].Xyz[0] = -0.7f;   //x
+		Line[0].Xyz[1] = -0.7f;   //y
+		Line[0].Xyz[2] = 0.0f;   //z
+		Line[0].Normals[0] = 1.0f; //r
+		Line[0].Normals[1] = 0.0f; //g
+		Line[0].Normals[2] = 0.0f; //b
+
+		Line[1].Xyz[0] = 0.7f;
+		Line[1].Xyz[1] = 0.7f;
+		Line[1].Xyz[2] = 0.0f;   //z
+		Line[1].Normals[0] = 1.0f; //r
+		Line[1].Normals[1] = 0.0f; //g
+		Line[1].Normals[2] = 0.0f; //b
+		VkDrawLine(ArrayCount(Line), &Line[0], &Id3);
+
 		VkEndRendering();
 	}
 

@@ -358,8 +358,8 @@ I have few simple rules that I follow and you should too, to keep it consistent.
    Must resemble the type name, but you may but extra prefix or word if needed.
 
 4. Function names have Vk prefix if you want to indicate vulkan runtime to the user.
-   I am not very strict about this, so I use this to outline important stuff.   
-   I'll leave this to your liking as long as the code makes sense.
+   Some drawing functions have Vk prefix and some don't. If there is one that means 
+   the process is done in hardware, otherwise code is using software renderer.
 
 "Omnibus promissibus servanda sunt"
 
@@ -1970,27 +1970,41 @@ void CreateShaderPipelines()
 
 //TEMPLATE
 
-	VkShaderModule vs = VkShaderModules[0];
-	VkShaderModule fs = VkShaderModules[1];
-	ASSERT(vs, "Failed to load Vertex Shader.");
-	ASSERT(fs, "Failed to load Fragment Shader.");
+	ASSERT(VkShaderModules[0], "Failed to load Basic Vertex Shader.");
+	ASSERT(VkShaderModules[1], "Failed to load Basic Fragment Shader.");
+	ASSERT(VkShaderModules[2], "Failed to load Sampler Fragment Shader.");
 
-	ShaderStageCI[0].module = vs;
-	ShaderStageCI[1].module = fs;
+	//basic pipeline
+	ShaderStageCI[0].module = VkShaderModules[0];
+	ShaderStageCI[1].module = VkShaderModules[1];
 	PipelineCI.stageCount = 2;
 	PipelineCI.layout = VkPipelineLayouts[0];
 	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[0]));
 
-	vs = VkShaderModules[0];
-	fs = VkShaderModules[2];
-	ASSERT(vs, "Failed to load Vertex Shader.");
-	ASSERT(fs, "Failed to load Fragment Shader.");
-	ShaderStageCI[0].module = vs;
-	ShaderStageCI[1].module = fs;
+	//line draw pipeline
+	InputAssemblyCI.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+	RasterizationStateCI.polygonMode = VK_POLYGON_MODE_LINE;
+	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[1]));
+
+	//sampler pipeline
+	InputAssemblyCI.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	RasterizationStateCI.polygonMode = VK_POLYGON_MODE_FILL;
+	ShaderStageCI[0].module = VkShaderModules[0];
+	ShaderStageCI[1].module = VkShaderModules[2];
 	PipelineCI.stageCount = 2;
 	PipelineCI.layout = VkPipelineLayouts[1];
+	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[2]));
 
-	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[1]));
+	//alpha blend texture pipeline
+	ShaderStageCI[0].module = VkShaderModules[0];
+	ShaderStageCI[1].module = VkShaderModules[2];
+	PipelineCI.stageCount = 2;
+	PipelineCI.layout = VkPipelineLayouts[1];
+	ColorBlendAttachment.blendEnable = VK_TRUE;
+	DepthStensilStateCI.depthTestEnable = VK_FALSE; //disable depth so 2d images only.
+	DepthStensilStateCI.depthWriteEnable = VK_FALSE;
+	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[3]));
+
 	return;
 }
 
@@ -3200,7 +3214,7 @@ void VkEndRendering()
 	return;
 }
 
-void DrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
+void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
@@ -3250,7 +3264,7 @@ void DrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *Ind
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
-void DrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
+void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, b32 Blend, u32 *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
@@ -3296,9 +3310,49 @@ void DrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *
 	memcpy(Index, &IndexBuffer[0], ISize);
 	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
 	vkCmdBindIndexBuffer(CommandBuffer, IndexBuffers[0].Buffer, IOffset, VK_INDEX_TYPE_UINT32);
-	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[1]);
+	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[Blend ? 3 : 2]);
 	vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelineLayouts[1], 2, 1, &FragSamplerDescriptorSet, 0, NULL);
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
+}
+
+void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, u32 *Id)
+{
+	u32 VSize = sizeof(vertex_t) * VertexCount;
+	u8 *Verts;
+
+	if(!*Id)
+	{
+		Verts = (u8*) ZMalloc(VSize, 1);	
+		*Id = VkGetId(VertexBuffer, VSize);
+		VkPush(IdContainer, *Id);
+		VkPush(VpContainer, Verts);
+	}
+	else
+	{
+		s32 Verisign = VkIdExists(*Id);
+		if(Verisign == -1)
+		{
+			Warn("Unknown Entity Id supplied at draw update.");
+			return;
+		}
+		else
+		{
+			Verts = VpContainer.Items[Verisign];
+			ASSERT(Verts, "Invalid vertex pointer.");
+			//signal to free resources, the hash can never generate this number.
+			if(*Id == 1) 
+			{
+				ZFree(Verts, 1);
+				return;
+			}
+		}
+	}
+
+	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
+	memcpy(Verts, &VertexBuffer[0], VSize);
+	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
+	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[1]);
+	vkCmdDraw(CommandBuffer, VertexCount, 1, 0, 0);
 }
 
 void SetPixel32(u32 X, u32 Y, u32 Pixel) 
@@ -3312,15 +3366,15 @@ void SetPixel32(u32 X, u32 Y, u32 Pixel)
 	*Data = Pixel;
 }
 
-void PixCircle(int32_t CentreX, int32_t CentreY, int32_t Radius, uint32_t Color)
+void DrawPixCircle(s32 CentreX, s32 CentreY, s32 Radius, s32 Color)
 {
-	const int32_t diameter = (Radius * 2);
+	const s32 diameter = (Radius * 2);
 
-	int32_t x = (Radius - 1);
-	int32_t y = 0;
-	int32_t tx = 1;
-	int32_t ty = 1;
-	int32_t error = (tx - diameter);
+	s32 x = (Radius - 1);
+	s32 y = 0;
+	s32 tx = 1;
+	s32 ty = 1;
+	s32 error = (tx - diameter);
 
 	while (x >= y)
 	{
