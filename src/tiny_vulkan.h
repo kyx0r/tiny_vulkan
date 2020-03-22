@@ -405,7 +405,7 @@ u8 *UboDigress(VkDeviceSize Size, u8 BufIndex, VkDeviceSize *Offset);
 u32 MAX_FRAMES_IN_FLIGHT; //must be less than num Semaphores, Fences. 
 //-----------------------------------------------------
 VkAllocationCallbacks Allocator;
-VkAllocationCallbacks *VkAllocators = &Allocator;
+VkAllocationCallbacks *VkAllocators = NULL;//&Allocator;
 VkInstance Instance;
 VkDebugReportCallbackEXT VulkanDebugCallback;
 VkQueryPool QueryPool;
@@ -651,21 +651,70 @@ texture_t PixelTexture;
 
 #define VkStack(T, n) struct { u32 Idx; T Items[n]; }
 
-#define VkPush(stk, val) do {                                                 \
-    ASSERT((stk).Idx < (s32) (sizeof((stk).Items) / sizeof(*(stk).Items)), ""); \
-    (stk).Items[ (stk).Idx ] = (val);                                       \
-    (stk).Idx++;                                                            \
-  } while (0)
-
+VkStack(u32, 1000) IdContainer;
+VkStack(u8*, 1000) VpContainer;
+VkStack(u8*, 1000) IpContainer;
 
 #define VkPop(stk) do {      \
     ASSERT((stk).Idx > 0, ""); \
     (stk).Idx--;           \
   } while (0)
 
-VkStack(u32, 1000) IdContainer;
-VkStack(u8*, 1000) VpContainer;
-VkStack(u8*, 1000) IpContainer;
+//NOTE(Kyryl): 
+//There is a bug in Tcc compiler where if you try to do a stack allocation
+//inside the preprocessor macro it will start to eat away at other static memory 
+//and this ultimately will result in segv. So I am avoiding using stack here.
+
+//bubble sort in ascending order.
+//stk is the reference list and stk sort is the list
+//that is being sorted. if stk == stksort than this is a regular sort.
+//need to allocate memory to avoid writing and comparing with self.
+//the "type" parameter needs to be the type of stksort array passed in.
+//the number of elements in stk and stksort must be balanced/equal
+
+#define VkStkSort(stk, stksort, type) do {\
+	if((u8*)&stk == (u8*)&stksort)\
+	{\
+		type *rtmp = Tiny_Malloc(sizeof(type) * (stk).Idx);\
+		memcpy(rtmp, &(stk).Items[0], sizeof(type) * (stk).Idx);\
+		for(u32 i = 0; i < (stk).Idx; i++)\
+		{\
+			for(u32 j = 0; j < (stk).Idx; j++)\
+			{\
+				if(rtmp[j] > rtmp[i])\
+				{\
+					type tmp = (stksort).Items[i];\
+					(stksort).Items[i] = (stksort).Items[j];\
+					(stksort).Items[j] = tmp;\
+				}\
+			}\
+		}\
+		Tiny_Free(rtmp);\
+	}\
+	else\
+	{\
+		ASSERT((stk).Idx == (stksort).Idx, \
+		"Error: Unbalanced stack %d != %d",(stk).Idx, (stksort).Idx );\
+		for(u32 i = 0; i < (stk).Idx; i++)\
+		{\
+			for(u32 j = 0; j < (stk).Idx; j++)\
+			{\
+				if((stk).Items[j] > (stk).Items[i])\
+				{\
+					type tmp = (stksort).Items[i];\
+					(stksort).Items[i] = (stksort).Items[j];\
+					(stksort).Items[j] = tmp;\
+				}\
+			}\
+		}\
+	}\
+} while(0)\
+
+#define VkPush(stk, val) do {\
+	ASSERT((stk).Idx < (s32) (ArrayCount((stk).Items)), "");\
+	(stk).Items[ (stk).Idx ] = (val);\
+	(stk).Idx++;\
+} while (0)
 
 //CONTAINER
 
@@ -697,15 +746,32 @@ recalc:;
 	return Res;
 }
 
+//NOTE(Kyryl):
+//This function is binary search optimized, data must be sorted.
 s32 VkIdExists(u32 Id)
 {
-	for(u32 i = 0; i < IdContainer.Idx; i++)
-	{
-		if(IdContainer.Items[i] == Id)
+	u32 l = 0;
+	u32 r = IdContainer.Idx - 1;
+	while (l <= r) 
+	{ 
+		s32 m = l + (r-l)/2; 
+
+		// Check if x is present at mid 
+		if (IdContainer.Items[m] == Id)  
 		{
-			return i;
-		}		
-	}
+			return m;   
+		}
+		// If x greater, ignore left half   
+		if (IdContainer.Items[m] < Id)  
+		{
+			l = m + 1;  
+		}
+		else 
+		{
+			// If x is smaller, ignore right half  
+			r = m - 1;  
+		}
+	} 
 	return -1;
 }
 
@@ -2317,6 +2383,7 @@ _continue:;
 
 	//TODO(Kyryl): This is important, need a proper fallback if not listed.
 	PresentationMode = VK_PRESENT_MODE_FIFO_KHR;
+	//PresentationMode = VK_PRESENT_MODE_MAILBOX_KHR;
 	for(i = 0; i<ModesCount; i++)
 	{
 		if(PresentModes[i]==PresentationMode)
@@ -3185,30 +3252,31 @@ void VkEndRendering()
 		switch(result)
 		{
 			case VK_SUCCESS:
-				continue;
+				break;
 			case VK_ERROR_OUT_OF_DATE_KHR:
 				Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
-				continue;
+				break;
 			default:
 				VK_CHECK(result);
 				return;
 		}
-	}
 #ifdef TINYENGINE_DEBUG
-	u64 QueryResults[2];
-	VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
-	                               sizeof(QueryResults), QueryResults, sizeof(QueryResults[0]), VK_QUERY_RESULT_64_BIT));
+		u64 QueryResults[2];
+		VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
+					sizeof(QueryResults), QueryResults, sizeof(QueryResults[0]), VK_QUERY_RESULT_64_BIT));
 
-	f64 FrameGpuBegin = (f64)QueryResults[0] * DeviceProperties.limits.timestampPeriod * 1e-6;
-	f64 FrameGpuEnd = (f64)QueryResults[1] * DeviceProperties.limits.timestampPeriod * 1e-6;
-	f64 FrameCpuEnd = Tiny_GetTime() * 1000;
+		f64 FrameGpuBegin = (f64)QueryResults[0] * DeviceProperties.limits.timestampPeriod * 1e-6;
+		f64 FrameGpuEnd = (f64)QueryResults[1] * DeviceProperties.limits.timestampPeriod * 1e-6;
+		f64 FrameCpuEnd = Tiny_GetTime() * 1000;
 
-	FrameCpuAvg = FrameCpuAvg * 0.95 + (FrameCpuEnd - (HighTime*1000)) * 0.05;
-	FrameGpuAvg = FrameGpuAvg * 0.95 + (FrameGpuEnd - FrameGpuBegin) * 0.05;
-	HighTime = Tiny_GetTime();
+		FrameCpuAvg = FrameCpuAvg * 0.95 + (FrameCpuEnd - (HighTime*1000)) * 0.05;
+		FrameGpuAvg = FrameGpuAvg * 0.95 + (FrameGpuEnd - FrameGpuBegin) * 0.05;
+		HighTime = Tiny_GetTime();
 
-	p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
+		//TODO put this somewhere else
+		//p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
 #endif
+	}
 	CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	ASSERT(!CurrentFrame, "CurrentFrame != 0");
 	return;
@@ -3229,6 +3297,9 @@ void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *I
 		VkPush(IdContainer, *Id);
 		VkPush(VpContainer, Verts);
 		VkPush(IpContainer, Index);
+		VkStkSort(IdContainer, VpContainer, u8*);
+		VkStkSort(IdContainer, IpContainer, u8*);
+		VkStkSort(IdContainer, IdContainer, u32);
 	}
 	else
 	{
@@ -3279,6 +3350,9 @@ void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32
 		VkPush(IdContainer, *Id);
 		VkPush(VpContainer, Verts);
 		VkPush(IpContainer, Index);
+		VkStkSort(IdContainer, VpContainer, u8*);
+		VkStkSort(IdContainer, IpContainer, u8*);
+		VkStkSort(IdContainer, IdContainer, u32);
 	}
 	else
 	{
@@ -3326,6 +3400,10 @@ void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, u32 *Id)
 		*Id = VkGetId(VertexBuffer, VSize);
 		VkPush(IdContainer, *Id);
 		VkPush(VpContainer, Verts);
+		VkPush(IpContainer, NULL); //push a dummy to keep the stack balanced
+		VkStkSort(IdContainer, VpContainer, u8*);
+		VkStkSort(IdContainer, IpContainer, u8*);
+		VkStkSort(IdContainer, IdContainer, u32);
 	}
 	else
 	{

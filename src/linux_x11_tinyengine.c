@@ -281,7 +281,7 @@ f64 Tiny_GetTime()
 	return (f64)(Tiny_GetTimerValue()-TimerOffset) / 1000000;
 }
 
-void ProcessEvents()
+void *ProcessEvents()
 {
 
 	XEvent Event;
@@ -374,6 +374,7 @@ void ProcessEvents()
 				break;
 		}
 	}
+	return NULL;
 }
 
 int main(int argc, char** argv)
@@ -435,9 +436,8 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
-	//Maybe some day events will be threaded? 
-	//pthread_t Ithread;
-	//ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
+	pthread_t Ithread;
+	ASSERT(!pthread_create(&Ithread, NULL, &ProcessEvents, NULL), "pthread: EventThread failed.");
 
 	TimerOffset = Tiny_GetTimerValue();
 
@@ -446,8 +446,6 @@ int main(int argc, char** argv)
 	u32 Id3 = 0;
 	while (1) 
 	{
-		ProcessEvents();
-
 		VkBeginRendering();
 
 		//DRAW commands go in between Begin and End respectively.
