@@ -2086,7 +2086,7 @@ VkBool32 VKAPI_CALL DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugRepo
 		return VK_FALSE;
 
 
-//	ASSERT(0,"");
+	ASSERT(0,"");
 	return VK_FALSE;
 }
 

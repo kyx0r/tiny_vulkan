@@ -88,7 +88,7 @@ void LogSetfp(FILE *Fp);
 
 #else
 
-#define ASSERT(condition, message, ...)
+#define ASSERT(condition, message, ...) {typeof(condition) dummy = condition;};
 #define Trace(...)
 #define Debug(...)
 #define Info(...)
@@ -547,6 +547,7 @@ int main(int argc, char** argv)
 
 		VkEndRendering();
 	}
+	p("Exit");
 	DeInitVulkan();
 	dlclose(VulkanLoader);
 	XCloseDisplay(Wnd.Display);
