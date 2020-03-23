@@ -529,7 +529,6 @@ texture_t TexturePool[NUM_TEXTURES];
 //----------------------------------------------------
 VkPhysicalDeviceMemoryProperties DeviceMemoryProperties;
 
-u32 VboAllocCount;
 typedef struct vbo_t
 {
 	VkBuffer Buffer;
@@ -540,7 +539,6 @@ typedef struct vbo_t
 }vbo_t;
 vbo_t VertexBuffers[NUM_VBO_BUFFERS];
 
-u32 IboAllocCount;
 typedef struct ibo_t
 {
 	VkBuffer Buffer;
@@ -552,7 +550,6 @@ typedef struct ibo_t
 ibo_t IndexBuffers[NUM_IBO_BUFFERS];
 
 #define MAX_UNIFORM_ALLOC 2048
-u32 UboAllocCount;
 typedef struct ubo_t
 {
 	VkBuffer Buffer;
@@ -649,7 +646,9 @@ texture_t PixelTexture;
 
 //CONTAINER
 
-#define VkStack(T, n) struct { u32 Idx; T Items[n]; }
+b32 UpdateContainers;
+
+#define VkStack(T, n) struct { u32 Idx; T tmp; T Items[n]; }
 
 VkStack(u32, 1000) IdContainer;
 VkStack(u8*, 1000) VpContainer;
@@ -660,55 +659,35 @@ VkStack(u8*, 1000) IpContainer;
     (stk).Idx--;           \
   } while (0)
 
-//NOTE(Kyryl): 
-//There is a bug in Tcc compiler where if you try to do a stack allocation
-//inside the preprocessor macro it will start to eat away at other static memory 
-//and this ultimately will result in segv. So I am avoiding using stack here.
-
 //bubble sort in ascending order.
-//stk is the reference list and stk sort is the list
-//that is being sorted. if stk == stksort than this is a regular sort.
-//need to allocate memory to avoid writing and comparing with self.
-//the "type" parameter needs to be the type of stksort array passed in.
-//the number of elements in stk and stksort must be balanced/equal
-
-#define VkStkSort(stk, stksort, type) do {\
-	if((u8*)&stk == (u8*)&stksort)\
+//the number of elements in stk and args must be balanced/equal
+#define VkStkSort(stk, arg1, arg2) do {\
+	for(u32 i = 0; i < (stk).Idx - 1; i++)\
 	{\
-		type *rtmp = Tiny_Malloc(sizeof(type) * (stk).Idx);\
-		memcpy(rtmp, &(stk).Items[0], sizeof(type) * (stk).Idx);\
-		for(u32 i = 0; i < (stk).Idx; i++)\
+		b32 swapped = 0;\
+		for(u32 j = 0; j < (stk).Idx - i - 1; j++)\
 		{\
-			for(u32 j = 0; j < (stk).Idx; j++)\
+			if((stk).Items[j] > (stk).Items[j+1])\
 			{\
-				if(rtmp[j] > rtmp[i])\
-				{\
-					type tmp = (stksort).Items[i];\
-					(stksort).Items[i] = (stksort).Items[j];\
-					(stksort).Items[j] = tmp;\
-				}\
+				(stk).tmp = (stk).Items[j];\
+				(stk).Items[j] = (stk).Items[j+1];\
+				(stk).Items[j+1] = (stk).tmp;\
+				(arg1).tmp = (arg1).Items[j];\
+				(arg1).Items[j] = (arg1).Items[j+1];\
+				(arg1).Items[j+1] = (arg1).tmp;\
+				(arg2).tmp = (arg2).Items[j];\
+				(arg2).Items[j] = (arg2).Items[j+1];\
+				(arg2).Items[j+1] = (arg2).tmp;\
+				swapped = 1;\
 			}\
 		}\
-		Tiny_Free(rtmp);\
-	}\
-	else\
-	{\
-		ASSERT((stk).Idx == (stksort).Idx, \
-		"Error: Unbalanced stack %d != %d",(stk).Idx, (stksort).Idx );\
-		for(u32 i = 0; i < (stk).Idx; i++)\
+		if(!swapped)\
 		{\
-			for(u32 j = 0; j < (stk).Idx; j++)\
-			{\
-				if((stk).Items[j] > (stk).Items[i])\
-				{\
-					type tmp = (stksort).Items[i];\
-					(stksort).Items[i] = (stksort).Items[j];\
-					(stksort).Items[j] = tmp;\
-				}\
-			}\
+			break;\
 		}\
 	}\
 } while(0)\
+
 
 #define VkPush(stk, val) do {\
 	ASSERT((stk).Idx < (s32) (ArrayCount((stk).Items)), "");\
@@ -733,17 +712,21 @@ void VkHash(u32 *Hash, const void *Data, u32 Size)
 
 u32 VkGetId(const void *Data, u32 Size)
 {
-	u32 Idx = IdContainer.Idx;
-	u32 Res = (Idx > 0) ? IdContainer.Items[Idx - 1] : HASH_INITIAL;
-recalc:;
+	u32 Res = HASH_INITIAL;
 	VkHash(&Res, Data, Size);
-	if(Res == 0 || Res == 1)
-	{
-		//Just in case.
-		Res = Tiny_GetTimerValue();
-		goto recalc;
-	}
 	return Res;
+}
+
+s32 VkIdExistsLin(u32 Id)
+{
+	for(u32 i = 0; i < IdContainer.Idx; i++)
+	{
+		if(IdContainer.Items[i] == Id)
+		{
+			return i;
+		}		
+	}
+	return -1;
 }
 
 //NOTE(Kyryl):
@@ -863,12 +846,12 @@ void CreateSwapchain(VkSwapchainKHR *Swapchain, VkSwapchainKHR *OldSwapchain)
 	SwapchainCI.clipped = VK_TRUE;
 	SwapchainCI.oldSwapchain = *OldSwapchain;
 
-	VK_CHECK(vkCreateSwapchainKHR(LogicalDevice, &SwapchainCI, NULL, Swapchain));
+	VK_CHECK(vkCreateSwapchainKHR(LogicalDevice, &SwapchainCI, VkAllocators, Swapchain));
 	ASSERT(Swapchain, "vkCreateSwapchainKHR failed.");
 
 	if(OldSwapchain != VK_NULL_HANDLE)
 	{
-		vkDestroySwapchainKHR(LogicalDevice, *OldSwapchain, NULL);
+		vkDestroySwapchainKHR(LogicalDevice, *OldSwapchain, VkAllocators);
 		OldSwapchain = VK_NULL_HANDLE;
 	}
 }
@@ -2103,7 +2086,7 @@ VkBool32 VKAPI_CALL DebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugRepo
 		return VK_FALSE;
 
 
-	ASSERT(0,"");
+//	ASSERT(0,"");
 	return VK_FALSE;
 }
 
@@ -2182,19 +2165,111 @@ void RebuildRenderer()
 	//Delete incompatible objects.
 	for(i = 0; i<SwchImageCount; i++)
 	{
-		vkDestroyImageView(LogicalDevice, VkSwchImageViews[i], NULL);
+		vkDestroyImageView(LogicalDevice, VkSwchImageViews[i], VkAllocators);
 	}
 
 	CreateSwapchainImageViews();
 
 	for(i = 0; i < SwchImageCount; i++)
 	{
-		vkDestroyFramebuffer(LogicalDevice, VkFramebuffers[i], NULL);
+		vkDestroyFramebuffer(LogicalDevice, VkFramebuffers[i], VkAllocators);
 	}
 
 	CreateDepthBuffer();
 	CreateSwchFrameBuffers();
 
+}
+
+void DeInitVulkan()
+{
+	u32 i;
+	VK_CHECK(vkDeviceWaitIdle(LogicalDevice));
+#ifdef TINYENGINE_DEBUG
+	vkDestroyQueryPool(LogicalDevice, QueryPool, VkAllocators);
+	if(VulkanDebugCallback != VK_NULL_HANDLE)
+	{
+		vkDestroyDebugReportCallbackEXT(Instance, VulkanDebugCallback, VkAllocators);
+	}
+#endif
+	vkFreeCommandBuffers(LogicalDevice, VkCommandPools[0], NUM_COMMAND_BUFFERS, &VkCommandBuffers[0]);
+	DestroyDepthBuffer();
+	for(i = 0; i<SwchImageCount; i++)
+	{
+		vkDestroyImageView(LogicalDevice, VkSwchImageViews[i], VkAllocators);
+	}
+	for(i = 0; i < SwchImageCount; i++)
+	{
+		vkDestroyFramebuffer(LogicalDevice, VkFramebuffers[i], VkAllocators);
+	}
+	for(i = 0; VertexBuffers[i].Buffer != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyBuffer(LogicalDevice, VertexBuffers[i].Buffer, VkAllocators);
+		vkFreeMemory(LogicalDevice, VertexBuffers[i].DeviceMemory, VkAllocators);
+	}
+	for(i = 0; UniformBuffers[i].Buffer != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyBuffer(LogicalDevice, UniformBuffers[i].Buffer, VkAllocators);
+		vkFreeMemory(LogicalDevice, UniformBuffers[i].DeviceMemory, VkAllocators);
+	}
+	for(i = 0; IndexBuffers[i].Buffer != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyBuffer(LogicalDevice, IndexBuffers[i].Buffer, VkAllocators);
+		vkFreeMemory(LogicalDevice, IndexBuffers[i].DeviceMemory, VkAllocators);
+	}
+	for(i = 0; i < NUM_STAGING_BUFFERS; i++)
+	{
+		vkDestroyBuffer(LogicalDevice, StagingBuffers[i].Buffer, VkAllocators);
+		vkFreeMemory(LogicalDevice, StagingBuffers[i].DeviceMemory, VkAllocators);
+	}
+	for(i = 0; i < NUM_COMMAND_POOLS; i++)
+	{
+		vkDestroyCommandPool(LogicalDevice, VkCommandPools[i], VkAllocators);
+	}
+	for(i = 0; i < TextureCount; i++)
+	{
+		vkFreeMemory(LogicalDevice, TexturePool[i].DeviceMemory, VkAllocators);
+		vkDestroyImage(LogicalDevice, TexturePool[i].Image, VkAllocators);
+		vkDestroyImageView(LogicalDevice, TexturePool[i].ImageView, VkAllocators);
+	}
+	for(i = 0; i < NUM_SEMAPHORES; i++)
+	{
+		vkDestroySemaphore(LogicalDevice, VkWaitSemaphores[i], VkAllocators);
+		vkDestroySemaphore(LogicalDevice, VkSignalSemaphores[i], VkAllocators);
+	}
+	for(i = 0; i < NUM_FENCES; i++)
+	{
+		vkDestroyFence(LogicalDevice, VkFences[i], VkAllocators);
+	}
+	for(i = 0; VkShaderModules[i] != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyShaderModule(LogicalDevice, VkShaderModules[i], VkAllocators);
+	}
+	for(i = 0; VkPipelines[i] != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyPipeline(LogicalDevice, VkPipelines[i], VkAllocators);
+	}
+	for(i = 0; VkPipelineLayouts[i] != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyPipelineLayout(LogicalDevice, VkPipelineLayouts[i], VkAllocators);
+	}
+	for(i = 0; VkRenderPasses[i] != VK_NULL_HANDLE; i++)
+	{
+		vkDestroyRenderPass(LogicalDevice, VkRenderPasses[i], VkAllocators);
+	}
+	for(i = 0; DeviceHeapCount; i++)
+	{
+		VkDeviceFree(i, DeviceHeaps[i].DeviceMemory);
+	}
+
+	vkDestroyDescriptorPool(LogicalDevice, DescriptorPool, VkAllocators);
+	vkDestroyDescriptorSetLayout(LogicalDevice, VertUniformDescriptorSetLayout, VkAllocators);
+	vkDestroyDescriptorSetLayout(LogicalDevice, FragUniformDescriptorSetLayout, VkAllocators);
+	vkDestroyDescriptorSetLayout(LogicalDevice, FragSamplerDescriptorSetLayout, VkAllocators);
+	vkDestroySampler(LogicalDevice, PointSampler, VkAllocators);
+	vkDestroySwapchainKHR(LogicalDevice, VkSwapchains[0], VkAllocators);
+	vkDestroySurfaceKHR(Instance, VkSurface, VkAllocators);
+	vkDestroyDevice(LogicalDevice, VkAllocators);
+	vkDestroyInstance(Instance, VkAllocators);
 }
 
 b32 InitVulkan(PFN_vkGetInstanceProcAddr *GetProcAddr, u32 ReqExCount, const char **RequiredExtensions)
@@ -2601,10 +2676,6 @@ out:;
 	for(i = 0; i < NUM_SEMAPHORES; i++)
 	{
 		VK_CHECK(vkCreateSemaphore(LogicalDevice, &SemaphoreCI, VkAllocators, &VkWaitSemaphores[i]));
-	}
-
-	for(i = 0; i < NUM_SEMAPHORES; i++)
-	{
 		VK_CHECK(vkCreateSemaphore(LogicalDevice, &SemaphoreCI, VkAllocators, &VkSignalSemaphores[i]));
 	}
 
@@ -3234,6 +3305,12 @@ void VkEndRendering()
 #endif
 	VK_CHECK(vkEndCommandBuffer(CommandBuffer));
 
+	if(UpdateContainers)
+	{
+		VkStkSort(IdContainer, VpContainer, IpContainer);
+		UpdateContainers = false;
+	}
+
 
 	if(CurrentFrame != MAX_FRAMES_IN_FLIGHT-1)
 	{
@@ -3288,22 +3365,29 @@ void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *I
 	u32 ISize = sizeof(u32) * IndexCount;
 	u8 *Verts;
 	u8 *Index;
+	s32 Verisign;
 
 	if(!*Id)
 	{
-		Verts = (u8*) ZMalloc(VSize, 1);	
-		Index = (u8*) ZMalloc(ISize, 2);	
 		*Id = VkGetId(VertexBuffer, VSize);
-		VkPush(IdContainer, *Id);
-		VkPush(VpContainer, Verts);
-		VkPush(IpContainer, Index);
-		VkStkSort(IdContainer, VpContainer, u8*);
-		VkStkSort(IdContainer, IpContainer, u8*);
-		VkStkSort(IdContainer, IdContainer, u32);
+		Verisign = VkIdExistsLin(*Id);
+		if(Verisign == -1)
+		{
+			Verts = (u8*) ZMalloc(VSize, 1);	
+			Index = (u8*) ZMalloc(ISize, 2);	
+			VkPush(IdContainer, *Id);
+			VkPush(VpContainer, Verts);
+			VkPush(IpContainer, Index);
+			UpdateContainers = true;
+		}
+		else
+		{
+			goto check_ptrs; 
+		}
 	}
 	else
 	{
-		s32 Verisign = VkIdExists(*Id);
+		Verisign = VkIdExists(*Id);
 		if(Verisign == -1)
 		{
 			Warn("Unknown Entity Id supplied at draw update.");
@@ -3311,12 +3395,13 @@ void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *I
 		}
 		else
 		{
+check_ptrs:;
 			Verts = VpContainer.Items[Verisign];
 			Index = IpContainer.Items[Verisign];
 			ASSERT(Verts, "Invalid vertex pointer.");
 			ASSERT(Index, "Invalid index pointer.");
-			//signal to free resources, the hash can never generate this number.
-			if(*Id == 1) 
+			//signal to free resources
+			if(!VertexBuffer) 
 			{
 				ZFree(Verts, 1);
 				ZFree(Index, 2);		
@@ -3341,22 +3426,29 @@ void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32
 	u32 ISize = sizeof(u32) * IndexCount;
 	u8 *Verts;
 	u8 *Index;
+	s32 Verisign;
 
 	if(!*Id)
 	{
-		Verts = (u8*) ZMalloc(VSize, 1);	
-		Index = (u8*) ZMalloc(ISize, 2);	
 		*Id = VkGetId(VertexBuffer, VSize);
-		VkPush(IdContainer, *Id);
-		VkPush(VpContainer, Verts);
-		VkPush(IpContainer, Index);
-		VkStkSort(IdContainer, VpContainer, u8*);
-		VkStkSort(IdContainer, IpContainer, u8*);
-		VkStkSort(IdContainer, IdContainer, u32);
+		Verisign = VkIdExistsLin(*Id);
+		if(Verisign == -1)
+		{
+			Verts = (u8*) ZMalloc(VSize, 1);	
+			Index = (u8*) ZMalloc(ISize, 2);	
+			VkPush(IdContainer, *Id);
+			VkPush(VpContainer, Verts);
+			VkPush(IpContainer, Index);
+			UpdateContainers = true;
+		}
+		else
+		{
+			goto check_ptrs; 
+		}
 	}
 	else
 	{
-		s32 Verisign = VkIdExists(*Id);
+		Verisign = VkIdExists(*Id);
 		if(Verisign == -1)
 		{
 			Warn("Unknown Entity Id supplied at draw update.");
@@ -3364,12 +3456,13 @@ void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32
 		}
 		else
 		{
+check_ptrs:;
 			Verts = VpContainer.Items[Verisign];
 			Index = IpContainer.Items[Verisign];
 			ASSERT(Verts, "Invalid vertex pointer.");
 			ASSERT(Index, "Invalid index pointer.");
-			//signal to free resources, the hash can never generate this number.
-			if(*Id == 1) 
+			//signal to free resources
+			if(!VertexBuffer) 
 			{
 				ZFree(Verts, 1);
 				ZFree(Index, 2);		
@@ -3377,6 +3470,7 @@ void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32
 			}
 		}
 	}
+
 
 	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
 	VkDeviceSize IOffset = Index - (u8*) IndexBuffers[0].Data;
@@ -3393,21 +3487,28 @@ void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, u32 *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u8 *Verts;
+	s32 Verisign;
 
 	if(!*Id)
 	{
-		Verts = (u8*) ZMalloc(VSize, 1);	
 		*Id = VkGetId(VertexBuffer, VSize);
-		VkPush(IdContainer, *Id);
-		VkPush(VpContainer, Verts);
-		VkPush(IpContainer, NULL); //push a dummy to keep the stack balanced
-		VkStkSort(IdContainer, VpContainer, u8*);
-		VkStkSort(IdContainer, IpContainer, u8*);
-		VkStkSort(IdContainer, IdContainer, u32);
+		Verisign = VkIdExistsLin(*Id);
+		if(Verisign == -1)
+		{
+			Verts = (u8*) ZMalloc(VSize, 1);	
+			VkPush(IdContainer, *Id);
+			VkPush(VpContainer, Verts);
+			VkPush(IpContainer, (u8*)0x1); //push a dummy to keep the stack balanced.
+			UpdateContainers = true;
+		}
+		else
+		{
+			goto check_ptrs; 
+		}
 	}
 	else
 	{
-		s32 Verisign = VkIdExists(*Id);
+		Verisign = VkIdExists(*Id);
 		if(Verisign == -1)
 		{
 			Warn("Unknown Entity Id supplied at draw update.");
@@ -3415,17 +3516,17 @@ void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, u32 *Id)
 		}
 		else
 		{
+check_ptrs:;
 			Verts = VpContainer.Items[Verisign];
 			ASSERT(Verts, "Invalid vertex pointer.");
-			//signal to free resources, the hash can never generate this number.
-			if(*Id == 1) 
+			//signal to free resources
+			if(!VertexBuffer) 
 			{
 				ZFree(Verts, 1);
 				return;
 			}
 		}
 	}
-
 	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
 	memcpy(Verts, &VertexBuffer[0], VSize);
 	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);

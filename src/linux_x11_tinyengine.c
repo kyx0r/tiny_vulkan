@@ -14,6 +14,9 @@
 #include <math.h>
 #include <sys/mman.h>
 #include "sys/time.h"
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
 #include "tinyengine.h"
 
@@ -223,7 +226,9 @@ typedef struct linux_wnd
 } linux_wnd;
 
 static linux_wnd Wnd;
+KeySym Sym;
 uint64_t TimerOffset;
+u32 EntIds[1000];
 
 void SurfaceCallback(VkSurfaceKHR* Surface)
 {
@@ -234,7 +239,7 @@ void SurfaceCallback(VkSurfaceKHR* Surface)
 	SurfaceCI.dpy = Wnd.Display;
 	SurfaceCI.window = Wnd.Window;
 
-	VK_CHECK(vkCreateXlibSurfaceKHR(Instance, &SurfaceCI, NULL, Surface));
+	VK_CHECK(vkCreateXlibSurfaceKHR(Instance, &SurfaceCI, VkAllocators, Surface));
 }
 
 u8 *Tiny_ReadFile(const char *Filename, s32 *Size)
@@ -281,11 +286,11 @@ f64 Tiny_GetTime()
 	return (f64)(Tiny_GetTimerValue()-TimerOffset) / 1000000;
 }
 
-void *ProcessEvents()
+void *EventThread()
 {
 
 	XEvent Event;
-	while (XPending(Wnd.Display) > 0) 
+	while (1) 
 	{
 		//see https://tronche.com/gui/x/xlib/events/structures.html 
 		//NOTE(Kyryl): So the issue was that with validation layers enabled when resizing the window
@@ -302,6 +307,12 @@ void *ProcessEvents()
 			#endif
 			case KeyPress:
 				DbgEvent("KeyPress");
+				XKeyPressedEvent* e = (XKeyPressedEvent*)&(Event);
+				Sym = XLookupKeysym(e, 0);
+				if(Sym == XK_Escape)
+				{
+					return NULL;
+				}
 				break;
 			case KeyRelease:
 				DbgEvent("KeyRelease");
@@ -417,7 +428,9 @@ int main(int argc, char** argv)
 	// Set window title
 	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 	//This call is crucial because the window size may be changed by window manager.
-	ProcessEvents();
+	//ProcessEvents();
+	pthread_t Ithread;
+	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
 
 	const char *RequiredExtensions[] =
 	{
@@ -436,15 +449,10 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
-	pthread_t Ithread;
-	ASSERT(!pthread_create(&Ithread, NULL, &ProcessEvents, NULL), "pthread: EventThread failed.");
 
 	TimerOffset = Tiny_GetTimerValue();
 
-	u32 Id1 = 0;
-	u32 Id2 = 0;
-	u32 Id3 = 0;
-	while (1) 
+	while (Sym != XK_Escape)
 	{
 		VkBeginRendering();
 
@@ -489,7 +497,24 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 1.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &Id1);
+		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
+
+		vertex_t Line[2];
+		Line[0].Xyz[0] = -0.7f;   //x
+		Line[0].Xyz[1] = -0.7f;   //y
+		Line[0].Xyz[2] = 0.0f;   //z
+		Line[0].Normals[0] = 1.0f; //r
+		Line[0].Normals[1] = 0.0f; //g
+		Line[0].Normals[2] = 0.0f; //b
+
+		Line[1].Xyz[0] = 0.7f;
+		Line[1].Xyz[1] = 0.7f;
+		Line[1].Xyz[2] = 0.0f;   //z
+		Line[1].Normals[0] = 1.0f; //r
+		Line[1].Normals[1] = 0.0f; //g
+		Line[1].Normals[2] = 0.0f; //b
+
+		VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[3]);
 
 		DrawPixCircle(800, 500, 50, 0xFFFFFFFF);
 
@@ -517,27 +542,13 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 0.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &Id2);
+		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
 
-		vertex_t Line[2];
-		Line[0].Xyz[0] = -0.7f;   //x
-		Line[0].Xyz[1] = -0.7f;   //y
-		Line[0].Xyz[2] = 0.0f;   //z
-		Line[0].Normals[0] = 1.0f; //r
-		Line[0].Normals[1] = 0.0f; //g
-		Line[0].Normals[2] = 0.0f; //b
-
-		Line[1].Xyz[0] = 0.7f;
-		Line[1].Xyz[1] = 0.7f;
-		Line[1].Xyz[2] = 0.0f;   //z
-		Line[1].Normals[0] = 1.0f; //r
-		Line[1].Normals[1] = 0.0f; //g
-		Line[1].Normals[2] = 0.0f; //b
-		VkDrawLine(ArrayCount(Line), &Line[0], &Id3);
 
 		VkEndRendering();
 	}
-
+	DeInitVulkan();
+	dlclose(VulkanLoader);
 	XCloseDisplay(Wnd.Display);
 	return 0;
 }
