@@ -39,6 +39,14 @@ void LogSetfp(FILE *Fp);
 //do not leave hanging in production code though.
 #define p(...) LogLog(T_LOG, __FILE__, __LINE__, __VA_ARGS__)
 
+void Pause()
+{
+	p("Press any key to exit ...");
+	char Buf[10];					
+	fgets(Buf, 10, stdin); 
+	exit(1); 
+}
+
 #ifdef TINYENGINE_DEBUG
 
 
@@ -64,9 +72,7 @@ void LogSetfp(FILE *Fp);
 			LogExtra = true;\
 			LogNewLine = true;\
 			Fatal("Assertion %s failed in, %s line: %d ", #condition, __FILE__, __LINE__);\
-			char Buf[10];					\
-			fgets(Buf, 10, stdin); \
-			exit(1); \
+			Pause();\
 		} \
 	} while (false)
 
@@ -273,6 +279,8 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 	WindowClass.hIcon = LoadIcon(NULL, IDI_WINLOGO);
 	WindowClass.lpszClassName = L"Win32TinyEngineWindowClass"; 
 	
+	vk_entity_t EntIds[1000];
+	
 	if(RegisterClassW(&WindowClass))
 	{
 		HInstance = Instance;
@@ -280,7 +288,28 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 				WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
 				CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, Instance, 0);
 				
-		
+		const char *RequiredExtensions[] =
+		{
+			VK_KHR_SURFACE_EXTENSION_NAME,
+			VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+	#ifdef TINYENGINE_DEBUG
+			VK_EXT_DEBUG_REPORT_EXTENSION_NAME
+	#endif
+		};
+
+		HMODULE VulkanLoader = LoadLibrary("vulkan-1.dll");
+		if(!VulkanLoader)
+		{
+			Fatal("vulkan-1.dll not found!");
+			Pause();
+		}
+		PFN_vkGetInstanceProcAddr ProcAddr = 
+		(PFN_vkGetInstanceProcAddr) GetProcAddress(VulkanLoader, "vkGetInstanceProcAddr");
+		if(!InitVulkan(&ProcAddr, ArrayCount(RequiredExtensions), RequiredExtensions))
+		{
+			Fatal("Failed to initialize vulkan runtime!");
+			Pause();
+		}
 
 		if(ShowWindow(Window, SW_SHOW) == 0)
 		{
@@ -293,6 +322,37 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 					DispatchMessageW(&Message);
 				}
 			}
+			VkBeginRendering();
+			
+			vertex_t Vertices[4];
+			u32 indeces[6] = {0, 1, 2, 2, 3, 0};
+			Vertices[0].Xyz[0] = -1.0f;   //x
+			Vertices[0].Xyz[1] = -1.0f;   //y
+			Vertices[0].Xyz[2] = 0.0f;   //z
+			Vertices[0].UVs[0] = 0.0f;
+			Vertices[0].UVs[1] = 0.0f;
+
+			Vertices[1].Xyz[0] = 1.0f;
+			Vertices[1].Xyz[1] = -1.0f;
+			Vertices[1].Xyz[2] = 0.0f;
+			Vertices[1].UVs[0] = 1.0f;
+			Vertices[1].UVs[1] = 0.0f;
+
+			Vertices[2].Xyz[0] = 1.0f;
+			Vertices[2].Xyz[1] = 1.0f;
+			Vertices[2].Xyz[2] = 0.0f;
+			Vertices[2].UVs[0] = 1.0f;
+			Vertices[2].UVs[1] = 1.0f;
+
+			Vertices[3].Xyz[0] = -1.0f;
+			Vertices[3].Xyz[1] = 1.0f;
+			Vertices[3].Xyz[2] = 0.0f;
+			Vertices[3].UVs[0] = 0.0f;
+			Vertices[3].UVs[1] = 1.0f;
+			
+			VkDrawLightnings(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[4]);
+
+			VkEndRendering();
 		}
 
 	}
