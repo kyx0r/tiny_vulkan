@@ -247,8 +247,10 @@ f64 Tiny_GetTime()
 	return (f64)(Tiny_GetTimerValue()-TimerOffset) / 1000000;
 }
 
+b32 Exit;
 HWND Window;
 HINSTANCE HInstance;
+vk_entity_t EntIds[1000];
 
 void SurfaceCallback(VkSurfaceKHR* Surface)
 {
@@ -265,12 +267,20 @@ void SurfaceCallback(VkSurfaceKHR* Surface)
 static LRESULT CALLBACK
 Win32MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 {
-	LRESULT Result = DefWindowProcW(Window, Message, WParam, LParam);
-	return Result;
+	switch(Message)
+	{
+		case WM_CLOSE:
+			Exit = true;
+			break;
+	}
+	return DefWindowProcW(Window, Message, WParam, LParam);
 }
 
 int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
 {
+	FILE* File = fopen("./log.txt","w");
+	LogSetfp(File);
+	
 	WNDCLASSW WindowClass = {0};
 	WindowClass.style = CS_OWNDC;
 	WindowClass.lpfnWndProc = Win32MainWindowCallback;
@@ -278,11 +288,10 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 	WindowClass.hCursor = LoadCursor(NULL, IDC_ARROW);
 	WindowClass.hIcon = LoadIcon(NULL, IDI_WINLOGO);
 	WindowClass.lpszClassName = L"Win32TinyEngineWindowClass"; 
-	
-	vk_entity_t EntIds[1000];
-	
+		
 	if(RegisterClassW(&WindowClass))
 	{
+		
 		HInstance = Instance;
 		Window = CreateWindowExW(0, WindowClass.lpszClassName, L"TinyEngine",
 				WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
@@ -313,7 +322,7 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 
 		if(ShowWindow(Window, SW_SHOW) == 0)
 		{
-			while(1)
+			while(!Exit)
 			{
 				MSG Message;
 				while(PeekMessageW(&Message, Window, 0, 0, PM_REMOVE))
@@ -321,40 +330,44 @@ int WINAPI WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine
 					TranslateMessage(&Message);
 					DispatchMessageW(&Message);
 				}
+				VkBeginRendering();
+				
+				vertex_t Vertices[4];
+				u32 indeces[6] = {0, 1, 2, 2, 3, 0};
+				Vertices[0].Xyz[0] = -1.0f;   //x
+				Vertices[0].Xyz[1] = -1.0f;   //y
+				Vertices[0].Xyz[2] = 0.0f;   //z
+				Vertices[0].UVs[0] = 0.0f;
+				Vertices[0].UVs[1] = 0.0f;
+
+				Vertices[1].Xyz[0] = 1.0f;
+				Vertices[1].Xyz[1] = -1.0f;
+				Vertices[1].Xyz[2] = 0.0f;
+				Vertices[1].UVs[0] = 1.0f;
+				Vertices[1].UVs[1] = 0.0f;
+
+				Vertices[2].Xyz[0] = 1.0f;
+				Vertices[2].Xyz[1] = 1.0f;
+				Vertices[2].Xyz[2] = 0.0f;
+				Vertices[2].UVs[0] = 1.0f;
+				Vertices[2].UVs[1] = 1.0f;
+
+				Vertices[3].Xyz[0] = -1.0f;
+				Vertices[3].Xyz[1] = 1.0f;
+				Vertices[3].Xyz[2] = 0.0f;
+				Vertices[3].UVs[0] = 0.0f;
+				Vertices[3].UVs[1] = 1.0f;
+				
+				VkDrawLightnings(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[4]);
+
+				VkEndRendering();
 			}
-			VkBeginRendering();
-			
-			vertex_t Vertices[4];
-			u32 indeces[6] = {0, 1, 2, 2, 3, 0};
-			Vertices[0].Xyz[0] = -1.0f;   //x
-			Vertices[0].Xyz[1] = -1.0f;   //y
-			Vertices[0].Xyz[2] = 0.0f;   //z
-			Vertices[0].UVs[0] = 0.0f;
-			Vertices[0].UVs[1] = 0.0f;
-
-			Vertices[1].Xyz[0] = 1.0f;
-			Vertices[1].Xyz[1] = -1.0f;
-			Vertices[1].Xyz[2] = 0.0f;
-			Vertices[1].UVs[0] = 1.0f;
-			Vertices[1].UVs[1] = 0.0f;
-
-			Vertices[2].Xyz[0] = 1.0f;
-			Vertices[2].Xyz[1] = 1.0f;
-			Vertices[2].Xyz[2] = 0.0f;
-			Vertices[2].UVs[0] = 1.0f;
-			Vertices[2].UVs[1] = 1.0f;
-
-			Vertices[3].Xyz[0] = -1.0f;
-			Vertices[3].Xyz[1] = 1.0f;
-			Vertices[3].Xyz[2] = 0.0f;
-			Vertices[3].UVs[0] = 0.0f;
-			Vertices[3].UVs[1] = 1.0f;
-			
-			VkDrawLightnings(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[4]);
-
-			VkEndRendering();
 		}
-
 	}
-	return(0);
+	else
+	{
+		Fatal("Failed to register window class.");
+	}
+	p("Exit");
+	return 0;
 }

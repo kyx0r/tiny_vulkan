@@ -38,6 +38,7 @@ function shaders()
 	glslangValidator -V ./shaders/basic.vert.glsl -o ./shaders/Vbasic.spv
 	glslangValidator -V ./shaders/basic.frag.glsl -o ./shaders/Fbasic.spv
 	glslangValidator -V ./shaders/sampler2D.frag.glsl -o ./shaders/Fsampler2D.spv
+	glslangValidator -V ./shaders/lightning.frag.glsl -o ./shaders/Flightning.spv
 }
 
 function hexshaders()
@@ -51,7 +52,14 @@ function hexshaders()
 
 function cross()
 {
-	$CC win32_tinyengine.c -luser32 -ld3d11 -ldxguid -o ../build/tinyengine.exe
+	if [ "$1" == "1" ]
+	then
+		hexshaders
+		$CC win32_tinyengine.c -luser32 -I./shaders -DHEX_SHADERS -o ../build/tinyengine.exe
+		exit 0
+	fi
+	shaders
+	$CC win32_tinyengine.c -luser32 -o ../build/tinyengine.exe
 	exit 0
 }
 
@@ -89,15 +97,17 @@ function help()
 	echo "Please specify target."
 	echo "Options:"
 	echo "./build.sh cross"
+	echo "./build.sh cross 1"
 	echo "./build.sh linuxx11"
 	echo "./build.sh linuxx11tcc"
 	echo "./build.sh linuxx11 1"
 	echo "./build.sh linuxx11tcc 1"
-	echo "1. windows build with cross compiler (linux & windows)"
-	echo "2. linux X11 build with gcc"
-	echo "3. linux X11 build with tcc"
-	echo "4. linux X11 build with gcc and compile shaders to hex .h file"
-	echo "5. linux X11 build with tcc and compile shaders to hex .h file"
+	echo "1. windows build with cross compiler (linux & windows) and compile shaders to hex .h file"
+	echo "2. windows build with cross compiler (linux & windows) and compile shaders to hex .h file"
+	echo "3. linux X11 build with gcc"
+	echo "4. linux X11 build with tcc"
+	echo "5. linux X11 build with gcc and compile shaders to hex .h file"
+	echo "6. linux X11 build with tcc and compile shaders to hex .h file"
 }
 
 "$@"

@@ -3,3 +3,4 @@ build/
 /src/log.txt
 /src/shaders/*.spv
 /src/shaders/*.h
+/src/*.exe

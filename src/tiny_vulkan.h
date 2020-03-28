@@ -601,7 +601,8 @@ typedef struct memblock_s
 typedef struct
 {
 	s32 Size;		// total bytes malloced, including header
-	u32 Align;
+	s32 Align;
+	s32 AlignedHeaderSize; //sizeof(memblock_t) based on memzone_t.Align
 	memblock_t Blocklist;	// start / end cap for linked list
 	memblock_t *Rover;
 } memzone_t;
@@ -892,7 +893,7 @@ void CreateHostTexture(texture_t *Texture)
 	ImageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	ImageCI.queueFamilyIndexCount = 0;
 	ImageCI.pQueueFamilyIndices = NULL;
-	ImageCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	ImageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 	VK_CHECK(vkCreateImage(LogicalDevice, &ImageCI, VkAllocators, &Texture->Image));
 
 	VkMemoryRequirements MemoryRequirements;
@@ -1463,7 +1464,7 @@ void *ZMalloc(s32 Size, u8 Zoneid)
 // scan through the block list looking for the first free block
 // of sufficient size
 //
-	Size += sizeof(memblock_t);	// account for size of block header
+	Size += Zone->AlignedHeaderSize; // account for size of block header
 #ifdef TINYENGINE_DEBUG
 	Size += sizeof(s32);		// space for memory trash tester
 #endif
@@ -1527,7 +1528,7 @@ void *ZMalloc(s32 Size, u8 Zoneid)
 	*(int *)((u8*)Base + Base->Size - sizeof(s32)) = ZONEID;
 #endif
 
-	return (void *) ((u8 *)Base + sizeof(memblock_t));
+	return (void *) ((u8 *)Base + Zone->AlignedHeaderSize);
 }
 
 void ZFree(void *Ptr, u8 Zoneid)
@@ -1540,7 +1541,7 @@ void ZFree(void *Ptr, u8 Zoneid)
 	}
 
 	Zone = Mainzone[Zoneid];
-	Block = (memblock_t *) ( (unsigned char *)Ptr - sizeof(memblock_t));
+	Block = (memblock_t *) ( (unsigned char *)Ptr - Zone->AlignedHeaderSize);
 #ifdef TINYENGINE_DEBUG
 	if (Block->Id != ZONEID)
 	{
@@ -1582,12 +1583,14 @@ void *ZRealloc(void *Ptr, int Size, u8 Zoneid)
 	int OldSize;
 	void *OldPtr;
 	memblock_t *Block;
+	memzone_t *Zone; 
 
+	Zone = Mainzone[Zoneid];
 	if (!Ptr)
 	{
 		return ZMalloc (Size, Zoneid);
 	}
-	Block = (memblock_t *) ((u8 *) Ptr - sizeof (memblock_t));
+	Block = (memblock_t *) ((u8 *) Ptr - Zone->AlignedHeaderSize);
 	
 #ifdef TINYENGINE_DEBUG
 	if (Block->Id != ZONEID)
@@ -1602,9 +1605,9 @@ void *ZRealloc(void *Ptr, int Size, u8 Zoneid)
 	OldSize = Block->Size;
 	
 #ifdef TINYENGINE_DEBUG	
-	OldSize -= sizeof(int); /* see ZMalloc() */
+	OldSize -= sizeof(s32); /* see ZMalloc() */
 #endif	
-	OldSize -= ((int)sizeof(memblock_t));	
+	OldSize -= Zone->AlignedHeaderSize;	
 	OldPtr = Ptr;
 
 	ZFree (Ptr, Zoneid);
@@ -1653,14 +1656,13 @@ b32 IsPowerOfTwo(u32 N)
 
 void ZInitZone(void *Mem, u32 Size, u32 Align, u8 Zoneid)
 {
-	ASSERT(IsPowerOfTwo(sizeof(memblock_t)), "memblock_t must be ^2 is %d", sizeof(memblock_t));
 	ASSERT(IsPowerOfTwo(Align), "Align must be ^2 is %d", Align);
 	memblock_t *Block;
 
 	memzone_t *Zone = (memzone_t*)Mem;
 	Mainzone[Zoneid] = Zone;
 	Zone->Align = Align;
-
+	Zone->AlignedHeaderSize = (sizeof(memblock_t) + (Align-1)) & -Align;
 	s32 ASize = (sizeof(memzone_t) + (Align-1)) & -Align;
 // set the entire zone to one free block
 
@@ -2285,9 +2287,9 @@ _continue:;
 		void *VkMemory = Tiny_Malloc(8000000); //8MB
 		ZInitZone(VkMemory, 8000000, 8, 0);
 		VkAllocators->pUserData = NULL;
-		VkAllocators->pfnAllocation = VkAlloc;
-		VkAllocators->pfnReallocation = VkRealloc;
-		VkAllocators->pfnFree = VkFree;
+		VkAllocators->pfnAllocation = (PFN_vkAllocationFunction)VkAlloc;
+		VkAllocators->pfnReallocation = (PFN_vkReallocationFunction)VkRealloc;
+		VkAllocators->pfnFree = (PFN_vkFreeFunction)VkFree;
 		VkAllocators->pfnInternalAllocation = NULL;
 		VkAllocators->pfnInternalFree = NULL;
 	}
@@ -2657,7 +2659,8 @@ out:;
 	UniformBuffers[0].Size = 20480;
 	UniformBuffers[0].Data = VkHostMalloc(UniformBuffers[0].Size, &UniformBuffers[0].Buffer, &UniformBuffers[0].DeviceMemory, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 	// Align to 32 bytes, min spec requirement.
-	ZInitZone(UniformBuffers[0].Data, UniformBuffers[0].Size, 32, 3);
+	ZInitZone(UniformBuffers[0].Data, UniformBuffers[0].Size, 
+	DeviceProperties.limits.minUniformBufferOffsetAlignment, 3);
 
 	//STAGING BUFFERS
 	ASSERT(NUM_STAGING_BUFFERS < NUM_FENCES - SwchImageCount, "Increase NUM_FENCES");
@@ -2955,9 +2958,10 @@ out:;
 	LoadHexShader(Fsampler2D, ArrayCount(Fsampler2D)*sizeof(u32));
 	LoadHexShader(Flightning, ArrayCount(Flightning)*sizeof(u32));
 #else
-	LoadShader("../source/shaders/Vbasic.spv");
-	LoadShader("../source/shaders/Fbasic.spv");
-	LoadShader("../source/shaders/Fsampler2D.spv");
+	LoadShader("../src/shaders/Vbasic.spv");
+	LoadShader("../src/shaders/Fbasic.spv");
+	LoadShader("../src/shaders/Fsampler2D.spv");
+	LoadShader("../src/shaders/Flightning.spv");
 #endif
 
 	//Basic
@@ -3005,7 +3009,7 @@ out:;
 void PostInit()
 {
 	//Sanity checks
-	MAX_FRAMES_IN_FLIGHT = SwchImageCount;
+	MAX_FRAMES_IN_FLIGHT = SwchImageCount - 1;
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_SEMAPHORES, "MAX_FRAMES_IN_FLIGHT > NUM_SEMAPHORES");
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_FENCES, "MAX_FRAMES_IN_FLIGHT > NUM_FENCES");
 
@@ -3245,6 +3249,7 @@ void VkEndRendering()
 	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
 	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
 
+	b32 Dated = false;
 	for(u32 i = 0; i < CurrentFrame+1; i++)
 	{
 		PresentInfo.pImageIndices = &ImageIndexes[i];
@@ -3256,6 +3261,7 @@ void VkEndRendering()
 				break;
 			case VK_ERROR_OUT_OF_DATE_KHR:
 				Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
+				Dated = true;
 				break;
 			default:
 				VK_CHECK(result);
@@ -3277,6 +3283,10 @@ void VkEndRendering()
 		//TODO put this somewhere else
 		//p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
 #endif
+	}
+	if(Dated)
+	{
+		RebuildRenderer();
 	}
 	CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	ASSERT(!CurrentFrame, "CurrentFrame != 0");
