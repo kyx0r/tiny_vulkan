@@ -46,6 +46,7 @@ function hexshaders()
 	glslangValidator -V ./shaders/basic.vert.glsl -o ./shaders/Vbasic.h --vn Vbasic
 	glslangValidator -V ./shaders/basic.frag.glsl -o ./shaders/Fbasic.h --vn Fbasic
 	glslangValidator -V ./shaders/sampler2D.frag.glsl -o ./shaders/Fsampler2D.h --vn Fsampler2D
+	glslangValidator -V ./shaders/lightning.frag.glsl -o ./shaders/Flightning.h --vn Flightning
 }
 
 function cross()

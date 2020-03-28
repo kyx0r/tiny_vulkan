@@ -594,24 +594,28 @@ typedef struct memblock_s
 {
 	s32 Size;	// including the header and possibly tiny fragments
 	s32 Tag;	// a tag of 0 is a free block
-#ifdef TINYENGINE_DEBUG
 	s32 Id;		// should be ZONEID
-#endif
 	struct memblock_s *Next, *Prev;
 } memblock_t;
 
 typedef struct
 {
 	s32 Size;		// total bytes malloced, including header
-	s32 Align;
-	volatile u32 MLock;	//Malloc to Free spinlock
-	volatile u32 FLock;
+	u32 Align;
 	memblock_t Blocklist;	// start / end cap for linked list
 	memblock_t *Rover;
 } memzone_t;
 
 memzone_t *Mainzone[10];
 //------------------------------SGM
+
+typedef struct vk_entity_t
+{
+	b32 Tag;
+	u8 *Vbuf;
+	u8 *Ibuf; 
+	u8 *Ubuf;
+} vk_entity_t;
 
 //--------------------------------------MEMORY
 
@@ -634,129 +638,32 @@ u32 ShaderCount;
 //------------------SHADERS
 
 //SHADER RESOURCES
+
+//single bindings
 typedef struct
 {
 	f32 Xyz[3];   // = vec3
 	f32 UVs[2]; // = vec2
-	f32 Normals[3]; // = vec3
+	f32 Normals[4]; // = vec4
 } vertex_t;
+
+typedef struct
+{
+	f32 Xy[2]; // = vec2
+} vec2_t;
+
+//ubo
+typedef struct
+{
+	f32 Resolution[2];
+	f32 Time;
+} ubo_lightning_t;
 
 texture_t PixelTexture;
 //SHADER RESOURCES
 
-//CONTAINER
-
-b32 UpdateContainers;
-
-#define VkStack(T, n) struct { u32 Idx; T tmp; T Items[n]; }
-
-VkStack(u32, 1000) IdContainer;
-VkStack(u8*, 1000) VpContainer;
-VkStack(u8*, 1000) IpContainer;
-
-#define VkPop(stk) do {      \
-    ASSERT((stk).Idx > 0, ""); \
-    (stk).Idx--;           \
-  } while (0)
-
-//bubble sort in ascending order.
-//the number of elements in stk and args must be balanced/equal
-#define VkStkSort(stk, arg1, arg2) do {\
-	for(u32 i = 0; i < (stk).Idx - 1; i++)\
-	{\
-		b32 swapped = 0;\
-		for(u32 j = 0; j < (stk).Idx - i - 1; j++)\
-		{\
-			if((stk).Items[j] > (stk).Items[j+1])\
-			{\
-				(stk).tmp = (stk).Items[j];\
-				(stk).Items[j] = (stk).Items[j+1];\
-				(stk).Items[j+1] = (stk).tmp;\
-				(arg1).tmp = (arg1).Items[j];\
-				(arg1).Items[j] = (arg1).Items[j+1];\
-				(arg1).Items[j+1] = (arg1).tmp;\
-				(arg2).tmp = (arg2).Items[j];\
-				(arg2).Items[j] = (arg2).Items[j+1];\
-				(arg2).Items[j+1] = (arg2).tmp;\
-				swapped = 1;\
-			}\
-		}\
-		if(!swapped)\
-		{\
-			break;\
-		}\
-	}\
-} while(0)\
-
-
-#define VkPush(stk, val) do {\
-	ASSERT((stk).Idx < (s32) (ArrayCount((stk).Items)), "");\
-	(stk).Items[ (stk).Idx ] = (val);\
-	(stk).Idx++;\
-} while (0)
-
-//CONTAINER
-
 //----------------------------------------------------VULKAN GLOBALS
 
-/* 32bit fnv-1a hash */
-#define HASH_INITIAL 2166136261
-void VkHash(u32 *Hash, const void *Data, u32 Size)
-{
-	const u8 *p = (const u8*) Data;
-	while (Size--)
-	{
-		*Hash = (*Hash ^ *p++) * 16777619;
-	}
-}
-
-u32 VkGetId(const void *Data, u32 Size)
-{
-	u32 Res = HASH_INITIAL;
-	VkHash(&Res, Data, Size);
-	return Res;
-}
-
-s32 VkIdExistsLin(u32 Id)
-{
-	for(u32 i = 0; i < IdContainer.Idx; i++)
-	{
-		if(IdContainer.Items[i] == Id)
-		{
-			return i;
-		}		
-	}
-	return -1;
-}
-
-//NOTE(Kyryl):
-//This function is binary search optimized, data must be sorted.
-s32 VkIdExists(u32 Id)
-{
-	u32 l = 0;
-	u32 r = IdContainer.Idx - 1;
-	while (l <= r) 
-	{ 
-		s32 m = l + (r-l)/2; 
-
-		// Check if x is present at mid 
-		if (IdContainer.Items[m] == Id)  
-		{
-			return m;   
-		}
-		// If x greater, ignore left half   
-		if (IdContainer.Items[m] < Id)  
-		{
-			l = m + 1;  
-		}
-		else 
-		{
-			// If x is smaller, ignore right half  
-			r = m - 1;  
-		}
-	} 
-	return -1;
-}
 
 const char *GetVulkanResultString(VkResult result)
 {
@@ -1566,9 +1473,6 @@ void *ZMalloc(s32 Size, u8 Zoneid)
 	Base = Rover = Mainzone[Zoneid]->Rover;
 	Start = Base->Prev;
 
-	while(Zone->MLock || Zone->FLock){}
-	Zone->MLock = true;
-
 	do
 	{
 		if (Rover == Start)	// scaned all the way around the list
@@ -1623,7 +1527,6 @@ void *ZMalloc(s32 Size, u8 Zoneid)
 	*(int *)((u8*)Base + Base->Size - sizeof(s32)) = ZONEID;
 #endif
 
-	Zone->MLock = false;
 	return (void *) ((u8 *)Base + sizeof(memblock_t));
 }
 
@@ -1648,10 +1551,6 @@ void ZFree(void *Ptr, u8 Zoneid)
 		Warn("ZFree: freed a freed pointer zoneid: %d", Zoneid);
 	}
 #endif
-
-	while(Zone->MLock || Zone->FLock){}
-	Zone->FLock = true;
-
 	Block->Tag = 0;	// mark as free
 
 	Other = Block->Prev;
@@ -1676,7 +1575,6 @@ void ZFree(void *Ptr, u8 Zoneid)
 		if (Other == Zone->Rover)
 			Zone->Rover = Block;
 	}
-	Zone->FLock = false;
 }
 
 void *ZRealloc(void *Ptr, int Size, u8 Zoneid)
@@ -1740,17 +1638,34 @@ void ZReset(u8 Zoneid)
 	}
 }
 
+b32 IsPowerOfTwo(u32 N) 
+{ 
+	if (N == 0) 
+		return 0; 
+	while (N != 1) 
+	{ 
+		if (N % 2 != 0) 
+			return 0; 
+		N = N / 2; 
+	} 
+	return 1; 
+} 
+
 void ZInitZone(void *Mem, u32 Size, u32 Align, u8 Zoneid)
 {
+	ASSERT(IsPowerOfTwo(sizeof(memblock_t)), "memblock_t must be ^2 is %d", sizeof(memblock_t));
+	ASSERT(IsPowerOfTwo(Align), "Align must be ^2 is %d", Align);
 	memblock_t *Block;
 
 	memzone_t *Zone = (memzone_t*)Mem;
 	Mainzone[Zoneid] = Zone;
 	Zone->Align = Align;
+
+	s32 ASize = (sizeof(memzone_t) + (Align-1)) & -Align;
 // set the entire zone to one free block
 
 	Zone->Blocklist.Next = Zone->Blocklist.Prev = Block =
-	                           (memblock_t *)( (u8 *)Zone + sizeof(memzone_t) );
+	                           (memblock_t *)( (u8 *)Zone + ASize );
 	Zone->Blocklist.Tag = 1; // in use block
 #ifdef TINYENGINE_DEBUG
 	Zone->Blocklist.Id = 0;
@@ -1763,7 +1678,7 @@ void ZInitZone(void *Mem, u32 Size, u32 Align, u8 Zoneid)
 #ifdef TINYENGINE_DEBUG
 	Block->Id = ZONEID;
 #endif	
-	Block->Size = Size - sizeof(memzone_t);
+	Block->Size = Size - ASize;
 }
 
 void *VkAlloc(void *pusd, size_t size, size_t align, VkSystemAllocationScope allocationScope)
@@ -2019,9 +1934,11 @@ void CreateShaderPipelines()
 
 //TEMPLATE
 
+	//These asserts tell you what is what.
 	ASSERT(VkShaderModules[0], "Failed to load Basic Vertex Shader.");
 	ASSERT(VkShaderModules[1], "Failed to load Basic Fragment Shader.");
 	ASSERT(VkShaderModules[2], "Failed to load Sampler Fragment Shader.");
+	ASSERT(VkShaderModules[3], "Failed to load Lightning Fragment Shader.");
 
 	//basic pipeline
 	ShaderStageCI[0].module = VkShaderModules[0];
@@ -2040,19 +1957,23 @@ void CreateShaderPipelines()
 	RasterizationStateCI.polygonMode = VK_POLYGON_MODE_FILL;
 	ShaderStageCI[0].module = VkShaderModules[0];
 	ShaderStageCI[1].module = VkShaderModules[2];
-	PipelineCI.stageCount = 2;
 	PipelineCI.layout = VkPipelineLayouts[1];
 	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[2]));
 
 	//alpha blend texture pipeline
 	ShaderStageCI[0].module = VkShaderModules[0];
 	ShaderStageCI[1].module = VkShaderModules[2];
-	PipelineCI.stageCount = 2;
 	PipelineCI.layout = VkPipelineLayouts[1];
 	ColorBlendAttachment.blendEnable = VK_TRUE;
 	DepthStensilStateCI.depthTestEnable = VK_FALSE; //disable depth so 2d images only.
 	DepthStensilStateCI.depthWriteEnable = VK_FALSE;
 	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[3]));
+
+	//lightning pipeline
+	ShaderStageCI[0].module = VkShaderModules[0];
+	ShaderStageCI[1].module = VkShaderModules[3];
+	PipelineCI.layout = VkPipelineLayouts[2];
+	VK_CHECK(vkCreateGraphicsPipelines(LogicalDevice, PipelineCache, 1, &PipelineCI, 0, &VkPipelines[4]));
 
 	return;
 }
@@ -2735,8 +2656,8 @@ out:;
 
 	UniformBuffers[0].Size = 20480;
 	UniformBuffers[0].Data = VkHostMalloc(UniformBuffers[0].Size, &UniformBuffers[0].Buffer, &UniformBuffers[0].DeviceMemory, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-	// Align to 256 bytes (ref spec)
-	ZInitZone(UniformBuffers[0].Data, UniformBuffers[0].Size, 256, 3);
+	// Align to 32 bytes, min spec requirement.
+	ZInitZone(UniformBuffers[0].Data, UniformBuffers[0].Size, 32, 3);
 
 	//STAGING BUFFERS
 	ASSERT(NUM_STAGING_BUFFERS < NUM_FENCES - SwchImageCount, "Increase NUM_FENCES");
@@ -3028,9 +2949,11 @@ out:;
 #include "Vbasic.h"
 #include "Fbasic.h"
 #include "Fsampler2D.h"
+#include "Flightning.h"
 	LoadHexShader(Vbasic, ArrayCount(Vbasic)*sizeof(u32));
 	LoadHexShader(Fbasic, ArrayCount(Fbasic)*sizeof(u32));
 	LoadHexShader(Fsampler2D, ArrayCount(Fsampler2D)*sizeof(u32));
+	LoadHexShader(Flightning, ArrayCount(Flightning)*sizeof(u32));
 #else
 	LoadShader("../source/shaders/Vbasic.spv");
 	LoadShader("../source/shaders/Fbasic.spv");
@@ -3049,11 +2972,19 @@ out:;
 	VK_CHECK(vkCreatePipelineLayout(LogicalDevice, &PipelineLayoutCI, VkAllocators, &VkPipelineLayouts[0]));
 
 	//Sampler
-	VkDescriptorSetLayout SetLayouts[] = {VertUniformDescriptorSetLayout, FragUniformDescriptorSetLayout, FragSamplerDescriptorSetLayout};
-	PipelineLayoutCI.setLayoutCount = ArrayCount(SetLayouts);
-	PipelineLayoutCI.pSetLayouts = SetLayouts;
-	VK_CHECK(vkCreatePipelineLayout(LogicalDevice, &PipelineLayoutCI, VkAllocators, &VkPipelineLayouts[1]));
-
+	{
+		VkDescriptorSetLayout SetLayouts[] = {VertUniformDescriptorSetLayout, FragUniformDescriptorSetLayout, FragSamplerDescriptorSetLayout};
+		PipelineLayoutCI.setLayoutCount = ArrayCount(SetLayouts);
+		PipelineLayoutCI.pSetLayouts = SetLayouts;
+		VK_CHECK(vkCreatePipelineLayout(LogicalDevice, &PipelineLayoutCI, VkAllocators, &VkPipelineLayouts[1]));
+	}
+	//Lightning
+	{
+		VkDescriptorSetLayout SetLayouts[] = {FragUniformDescriptorSetLayout};
+		PipelineLayoutCI.setLayoutCount = ArrayCount(SetLayouts);
+		PipelineLayoutCI.pSetLayouts = SetLayouts;
+		VK_CHECK(vkCreatePipelineLayout(LogicalDevice, &PipelineLayoutCI, VkAllocators, &VkPipelineLayouts[2]));
+	}
 	CreateShaderPipelines(); //does them all at once.
 
 	//End SHADERS & PIPELINE
@@ -3305,13 +3236,6 @@ void VkEndRendering()
 #endif
 	VK_CHECK(vkEndCommandBuffer(CommandBuffer));
 
-	if(UpdateContainers)
-	{
-		VkStkSort(IdContainer, VpContainer, IpContainer);
-		UpdateContainers = false;
-	}
-
-
 	if(CurrentFrame != MAX_FRAMES_IN_FLIGHT-1)
 	{
 		CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -3359,123 +3283,73 @@ void VkEndRendering()
 	return;
 }
 
-void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, u32 *Id)
+void VkDrawBasic(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, vk_entity_t *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
-	u8 *Verts;
-	u8 *Index;
-	s32 Verisign;
 
-	if(!*Id)
+	if(!Id->Tag)
 	{
-		*Id = VkGetId(VertexBuffer, VSize);
-		Verisign = VkIdExistsLin(*Id);
-		if(Verisign == -1)
-		{
-			Verts = (u8*) ZMalloc(VSize, 1);	
-			Index = (u8*) ZMalloc(ISize, 2);	
-			VkPush(IdContainer, *Id);
-			VkPush(VpContainer, Verts);
-			VkPush(IpContainer, Index);
-			UpdateContainers = true;
-		}
-		else
-		{
-			goto check_ptrs; 
-		}
+		Id->Vbuf = (u8*) ZMalloc(VSize, 1);	
+		Id->Ibuf = (u8*) ZMalloc(ISize, 2);	
+		Id->Tag = true;
 	}
 	else
 	{
-		Verisign = VkIdExists(*Id);
-		if(Verisign == -1)
+		//signal to free resources
+		if(Id->Tag == 2)
 		{
-			Warn("Unknown Entity Id supplied at draw update.");
+			ZFree(Id->Vbuf, 1);
+			ZFree(Id->Ibuf, 2);		
+			Id->Vbuf = NULL;
+			Id->Ibuf = NULL;
 			return;
 		}
-		else
-		{
-check_ptrs:;
-			Verts = VpContainer.Items[Verisign];
-			Index = IpContainer.Items[Verisign];
-			ASSERT(Verts, "Invalid vertex pointer.");
-			ASSERT(Index, "Invalid index pointer.");
-			//signal to free resources
-			if(!VertexBuffer) 
-			{
-				ZFree(Verts, 1);
-				ZFree(Index, 2);		
-				return;
-			}
-		}
+		ASSERT(Id->Vbuf, "Invalid vertex pointer.");
+		ASSERT(Id->Ibuf, "Invalid index pointer.");
 	}
 
-	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
-	VkDeviceSize IOffset = Index - (u8*) IndexBuffers[0].Data;
-	memcpy(Verts, &VertexBuffer[0], VSize);
-	memcpy(Index, &IndexBuffer[0], ISize);
+	VkDeviceSize VOffset = Id->Vbuf - (u8*) VertexBuffers[0].Data;
+	VkDeviceSize IOffset = Id->Ibuf - (u8*) IndexBuffers[0].Data;
+	memcpy(Id->Vbuf, &VertexBuffer[0], VSize);
+	memcpy(Id->Ibuf, &IndexBuffer[0], ISize);
 	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
 	vkCmdBindIndexBuffer(CommandBuffer, IndexBuffers[0].Buffer, IOffset, VK_INDEX_TYPE_UINT32);
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[0]);
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
-void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, b32 Blend, u32 *Id)
+void VkDrawTextured(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, b32 Blend, vk_entity_t *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
 	u32 ISize = sizeof(u32) * IndexCount;
-	u8 *Verts;
-	u8 *Index;
-	s32 Verisign;
 
-	if(!*Id)
+	if(!Id->Tag)
 	{
-		*Id = VkGetId(VertexBuffer, VSize);
-		Verisign = VkIdExistsLin(*Id);
-		if(Verisign == -1)
-		{
-			Verts = (u8*) ZMalloc(VSize, 1);	
-			Index = (u8*) ZMalloc(ISize, 2);	
-			VkPush(IdContainer, *Id);
-			VkPush(VpContainer, Verts);
-			VkPush(IpContainer, Index);
-			UpdateContainers = true;
-		}
-		else
-		{
-			goto check_ptrs; 
-		}
+		Id->Vbuf = (u8*) ZMalloc(VSize, 1);	
+		Id->Ibuf = (u8*) ZMalloc(ISize, 2);	
+		Id->Tag = true;
 	}
 	else
 	{
-		Verisign = VkIdExists(*Id);
-		if(Verisign == -1)
+		//signal to free resources
+		if(Id->Tag == 2)
 		{
-			Warn("Unknown Entity Id supplied at draw update.");
+			ZFree(Id->Vbuf, 1);
+			ZFree(Id->Ibuf, 2);		
+			Id->Vbuf = NULL;
+			Id->Ibuf = NULL;
 			return;
 		}
-		else
-		{
-check_ptrs:;
-			Verts = VpContainer.Items[Verisign];
-			Index = IpContainer.Items[Verisign];
-			ASSERT(Verts, "Invalid vertex pointer.");
-			ASSERT(Index, "Invalid index pointer.");
-			//signal to free resources
-			if(!VertexBuffer) 
-			{
-				ZFree(Verts, 1);
-				ZFree(Index, 2);		
-				return;
-			}
-		}
+		ASSERT(Id->Vbuf, "Invalid vertex pointer.");
+		ASSERT(Id->Ibuf, "Invalid index pointer.");
 	}
 
 
-	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
-	VkDeviceSize IOffset = Index - (u8*) IndexBuffers[0].Data;
-	memcpy(Verts, &VertexBuffer[0], VSize);
-	memcpy(Index, &IndexBuffer[0], ISize);
+	VkDeviceSize VOffset = Id->Vbuf - (u8*) VertexBuffers[0].Data;
+	VkDeviceSize IOffset = Id->Ibuf - (u8*) IndexBuffers[0].Data;
+	memcpy(Id->Vbuf, &VertexBuffer[0], VSize);
+	memcpy(Id->Ibuf, &IndexBuffer[0], ISize);
 	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
 	vkCmdBindIndexBuffer(CommandBuffer, IndexBuffers[0].Buffer, IOffset, VK_INDEX_TYPE_UINT32);
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[Blend ? 3 : 2]);
@@ -3483,52 +3357,28 @@ check_ptrs:;
 	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
-void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, u32 *Id)
+void VkDrawLine(u32 VertexCount, vertex_t *VertexBuffer, vk_entity_t *Id)
 {
 	u32 VSize = sizeof(vertex_t) * VertexCount;
-	u8 *Verts;
-	s32 Verisign;
 
-	if(!*Id)
+	if(!Id->Tag)
 	{
-		*Id = VkGetId(VertexBuffer, VSize);
-		Verisign = VkIdExistsLin(*Id);
-		if(Verisign == -1)
-		{
-			Verts = (u8*) ZMalloc(VSize, 1);	
-			VkPush(IdContainer, *Id);
-			VkPush(VpContainer, Verts);
-			VkPush(IpContainer, (u8*)0x1); //push a dummy to keep the stack balanced.
-			UpdateContainers = true;
-		}
-		else
-		{
-			goto check_ptrs; 
-		}
+		Id->Vbuf = (u8*) ZMalloc(VSize, 1);	
+		Id->Tag = true;
 	}
 	else
 	{
-		Verisign = VkIdExists(*Id);
-		if(Verisign == -1)
+		//signal to free resources
+		if(Id->Tag == 2)
 		{
-			Warn("Unknown Entity Id supplied at draw update.");
+			ZFree(Id->Vbuf, 1);
+			Id->Vbuf = NULL;
 			return;
 		}
-		else
-		{
-check_ptrs:;
-			Verts = VpContainer.Items[Verisign];
-			ASSERT(Verts, "Invalid vertex pointer.");
-			//signal to free resources
-			if(!VertexBuffer) 
-			{
-				ZFree(Verts, 1);
-				return;
-			}
-		}
+		ASSERT(Id->Vbuf, "Invalid vertex pointer.");
 	}
-	VkDeviceSize VOffset = Verts - (u8*) VertexBuffers[0].Data;
-	memcpy(Verts, &VertexBuffer[0], VSize);
+	VkDeviceSize VOffset = Id->Vbuf - (u8*) VertexBuffers[0].Data;
+	memcpy(Id->Vbuf, &VertexBuffer[0], VSize);
 	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[1]);
 	vkCmdDraw(CommandBuffer, VertexCount, 1, 0, 0);
@@ -3581,6 +3431,52 @@ void DrawPixCircle(s32 CentreX, s32 CentreY, s32 Radius, s32 Color)
 			error += (tx - diameter);
 		}
 	}
+}
+
+void VkDrawLightnings(u32 VertexCount, vertex_t *VertexBuffer, u32 IndexCount, u32 *IndexBuffer, vk_entity_t *Id)
+{
+	u32 VSize = sizeof(vertex_t) * VertexCount;
+	u32 ISize = sizeof(u32) * IndexCount;
+
+	if(!Id->Tag)
+	{
+		Id->Vbuf = (u8*) ZMalloc(VSize, 1);	
+		Id->Ibuf = (u8*) ZMalloc(ISize, 2);	
+		Id->Ubuf = (u8*) ZMalloc(sizeof(ubo_lightning_t), 3);	
+		Id->Tag = true;
+	}
+	else
+	{
+		//signal to free resources
+		if(Id->Tag == 2)
+		{
+			ZFree(Id->Vbuf, 1);
+			ZFree(Id->Ibuf, 2);		
+			ZFree(Id->Ubuf, 3);
+			Id->Ubuf = NULL;
+			Id->Vbuf = NULL;
+			Id->Ibuf = NULL;
+			return;
+		}
+		ASSERT(Id->Vbuf, "Invalid vertex pointer.");
+		ASSERT(Id->Ibuf, "Invalid index pointer.");
+		ASSERT(Id->Ubuf, "Invalid uniform pointer.");
+	}
+
+	ubo_lightning_t *ptr = (ubo_lightning_t*) Id->Ubuf;
+	ptr->Resolution[0] = SwchImageSize.width;
+	ptr->Resolution[1] = SwchImageSize.height;
+	ptr->Time = Tiny_GetTime();
+	u32 UOffset = Id->Ubuf - (u8*)UniformBuffers[0].Data;
+	VkDeviceSize VOffset = Id->Vbuf - (u8*) VertexBuffers[0].Data;
+	VkDeviceSize IOffset = Id->Ibuf - (u8*) IndexBuffers[0].Data;
+	memcpy(Id->Vbuf, &VertexBuffer[0], VSize);
+	memcpy(Id->Ibuf, &IndexBuffer[0], ISize);
+	vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &VertexBuffers[0].Buffer, &VOffset);
+	vkCmdBindIndexBuffer(CommandBuffer, IndexBuffers[0].Buffer, IOffset, VK_INDEX_TYPE_UINT32);
+	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[4]);
+	vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelineLayouts[2], 0, 1, &FragUniformDescriptorSet, 1, &UOffset);
+	vkCmdDrawIndexed(CommandBuffer, IndexCount, 1, 0, 0, 0);
 }
 
 #endif

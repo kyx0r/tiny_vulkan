@@ -228,7 +228,7 @@ typedef struct linux_wnd
 static linux_wnd Wnd;
 KeySym Sym;
 uint64_t TimerOffset;
-u32 EntIds[1000];
+vk_entity_t EntIds[1000];
 
 void SurfaceCallback(VkSurfaceKHR* Surface)
 {
@@ -497,7 +497,7 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 1.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
+		//VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
 
 		vertex_t Line[2];
 		Line[0].Xyz[0] = -0.7f;   //x
@@ -514,9 +514,9 @@ int main(int argc, char** argv)
 		Line[1].Normals[1] = 0.0f; //g
 		Line[1].Normals[2] = 0.0f; //b
 
-		VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[3]);
+		//VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[3]);
 
-		DrawPixCircle(800, 500, 50, 0xFFFFFFFF);
+		//DrawPixCircle(800, 500, 50, 0xFFFFFFFF);
 
 		Vertices[0].Xyz[0] = -1.0f;   //x
 		Vertices[0].Xyz[1] = -1.0f;   //y
@@ -542,8 +542,9 @@ int main(int argc, char** argv)
 		Vertices[3].UVs[0] = 0.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
+		//VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
 
+		VkDrawLightnings(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[4]);
 
 		VkEndRendering();
 	}
