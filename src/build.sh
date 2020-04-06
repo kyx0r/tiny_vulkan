@@ -39,6 +39,7 @@ function shaders()
 	glslangValidator -V ./shaders/basic.frag.glsl -o ./shaders/Fbasic.spv
 	glslangValidator -V ./shaders/sampler2D.frag.glsl -o ./shaders/Fsampler2D.spv
 	glslangValidator -V ./shaders/lightning.frag.glsl -o ./shaders/Flightning.spv
+	glslangValidator -V ./shaders/quad.vert.glsl -o ./shaders/Vquad.spv
 }
 
 function hexshaders()
@@ -48,6 +49,7 @@ function hexshaders()
 	glslangValidator -V ./shaders/basic.frag.glsl -o ./shaders/Fbasic.h --vn Fbasic
 	glslangValidator -V ./shaders/sampler2D.frag.glsl -o ./shaders/Fsampler2D.h --vn Fsampler2D
 	glslangValidator -V ./shaders/lightning.frag.glsl -o ./shaders/Flightning.h --vn Flightning
+	glslangValidator -V ./shaders/quad.vert.glsl -o ./shaders/Vquad.h --vn Vquad
 }
 
 function cross()

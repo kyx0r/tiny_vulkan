@@ -281,103 +281,108 @@ f64 Tiny_GetTime()
 	return (f64)(Tiny_GetTimerValue()-TimerOffset) / 1000000;
 }
 
+void ProcessEvents()
+{
+	//see https://tronche.com/gui/x/xlib/events/structures.html 
+	//NOTE(Kyryl): So the issue was that with validation layers enabled when resizing the window
+	//too quickly it triggers and forces assert. Without everything works fine. One way to prevent it is
+	//to watch for events, which now work, and stop the renderer until resize has finished. But this looks lame and
+	//I don't like it.
+	XEvent Event;
+	XNextEvent(Wnd.Display, &Event);
+	switch(Event.type)
+	{
+		#ifdef TINYENGINE_DEBUG
+		#define DbgEvent Debug
+		#else
+		#define DbgEvent(...)
+		#endif
+		case KeyPress:
+			DbgEvent("KeyPress");
+			XKeyPressedEvent* e = (XKeyPressedEvent*)&(Event);
+			KSym = XLookupKeysym(e, 0);
+			break;
+		case KeyRelease:
+			DbgEvent("KeyRelease");
+			break;
+		case ButtonPress:
+			DbgEvent("ButtonPress");
+			break;
+		case ButtonRelease:
+			DbgEvent("ButtonRelease");
+			break;
+		case MotionNotify:
+			DbgEvent("MotionNotify");
+			break;
+		case EnterNotify:
+			DbgEvent("EnterNotify");
+			break;
+		case LeaveNotify:
+			DbgEvent("LeaveNotify");
+			break;
+		case FocusIn:
+			DbgEvent("FocusIn");
+			break;
+		case FocusOut:
+			DbgEvent("FocusOut");
+			break;
+		case KeymapNotify:
+			DbgEvent("KeymapNotify");
+			break;
+		case Expose:;
+			DbgEvent("Expose");
+			break;
+		case GraphicsExpose:
+			DbgEvent("GraphicsExpose");
+			break;
+		case NoExpose:
+			DbgEvent("NoExpose");
+			break;
+		case VisibilityNotify:
+			DbgEvent("VisibilityNotify");
+			break;
+		case CreateNotify:
+			DbgEvent("CreateNotify");
+			break;
+		case DestroyNotify:
+			DbgEvent("DestroyNotify");
+			break;
+		case UnmapNotify:
+			DbgEvent("UnmapNotify");
+			break;
+		case MapNotify:
+			DbgEvent("MapNotify");
+			break;
+		case MapRequest:
+			DbgEvent("MapRequest");
+			break;
+		case ReparentNotify:
+			DbgEvent("ReparentNotify");
+			break;
+		case ConfigureNotify: ;
+			DbgEvent("ConfigureNotify");
+			break;
+		case ConfigureRequest: ;
+			DbgEvent("ConfigureRequest");
+			break;
+		case GravityNotify:
+			DbgEvent("GravityNotify");
+			break;
+		case ResizeRequest:
+			DbgEvent("ResizeRequest");
+			break;
+	}
+
+}
+
 void *EventThread()
 {
-
-	XEvent Event;
 	while (1) 
 	{
-		//see https://tronche.com/gui/x/xlib/events/structures.html 
-		//NOTE(Kyryl): So the issue was that with validation layers enabled when resizing the window
-		//too quickly it triggers and forces assert. Without everything works fine. One way to prevent it is
-		//to watch for events, which now work, and stop the renderer until resize has finished. But this looks lame and
-		//I don't like it.
-		XNextEvent(Wnd.Display, &Event);
-		switch(Event.type)
+		ProcessEvents();
+		if(KSym == XK_Escape)
 		{
-			#ifdef TINYENGINE_DEBUG
-			#define DbgEvent Debug
-			#else
-			#define DbgEvent(...)
-			#endif
-			case KeyPress:
-				DbgEvent("KeyPress");
-				XKeyPressedEvent* e = (XKeyPressedEvent*)&(Event);
-				KSym = XLookupKeysym(e, 0);
-				if(KSym == XK_Escape)
-				{
-					return NULL;
-				}
-				break;
-			case KeyRelease:
-				DbgEvent("KeyRelease");
-				break;
-			case ButtonPress:
-				DbgEvent("ButtonPress");
-				break;
-			case ButtonRelease:
-				DbgEvent("ButtonRelease");
-				break;
-			case MotionNotify:
-				DbgEvent("MotionNotify");
-				break;
-			case EnterNotify:
-				DbgEvent("EnterNotify");
-				break;
-			case LeaveNotify:
-				DbgEvent("LeaveNotify");
-				break;
-			case FocusIn:
-				DbgEvent("FocusIn");
-				break;
-			case FocusOut:
-				DbgEvent("FocusOut");
-				break;
-			case KeymapNotify:
-				DbgEvent("KeymapNotify");
-				break;
-			case Expose:;
-				DbgEvent("Expose");
-				break;
-			case GraphicsExpose:
-				DbgEvent("GraphicsExpose");
-				break;
-			case NoExpose:
-				DbgEvent("NoExpose");
-				break;
-			case VisibilityNotify:
-				DbgEvent("VisibilityNotify");
-				break;
-			case CreateNotify:
-				DbgEvent("CreateNotify");
-				break;
-			case DestroyNotify:
-				DbgEvent("DestroyNotify");
-				break;
-			case UnmapNotify:
-				DbgEvent("UnmapNotify");
-				break;
-			case MapNotify:
-				DbgEvent("MapNotify");
-				break;
-			case MapRequest:
-				DbgEvent("MapRequest");
-				break;
-			case ReparentNotify:
-				DbgEvent("ReparentNotify");
-				break;
-			case ConfigureNotify: ;
-				DbgEvent("ConfigureNotify");
-				break;
-			case ConfigureRequest: ;
-				DbgEvent("ConfigureRequest");
-				break;
-			case GravityNotify:
-				DbgEvent("GravityNotify");
-				break;
-			case ResizeRequest:
-				DbgEvent("ResizeRequest");
-				break;
+			return NULL;
 		}
 	}
 	return NULL;
@@ -400,7 +405,7 @@ redo:
 	if(argc0 == 1)
 	{
 		opt = tcc_set_options(s1, 
-		"linux_x11_tinyengine.c -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl -run");
+		"linux_x11_tinyengine.c -DHEX_SHADERS -Wall -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl -run");
 	}
 	else
 	{
@@ -580,7 +585,7 @@ int TinyEngineMain(int argc, char** argv)
 	// Set window title
 	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 	//This call is crucial because the window size may be changed by window manager.
-	//ProcessEvents();
+	ProcessEvents();
 	pthread_t Ithread;
 	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
 
@@ -668,7 +673,7 @@ int TinyEngineMain(int argc, char** argv)
 
 		//VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[3]);
 
-		//DrawPixCircle(800, 500, 50, 0xFFFFFFFF);
+		DrawPixCircle(100, 100, 50, 0xFFFFFFFF);
 
 		Vertices[0].Xyz[0] = -1.0f;   //x
 		Vertices[0].Xyz[1] = -1.0f;   //y
@@ -696,7 +701,7 @@ int TinyEngineMain(int argc, char** argv)
 
 		//VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
 
-		VkDrawLightnings(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[4]);
+		VkDrawLightnings(200, 200, &EntIds[4]);
 
 		VkEndRendering();
 	}
