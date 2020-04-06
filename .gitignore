@@ -4,3 +4,4 @@ build/
 /src/shaders/*.spv
 /src/shaders/*.h
 /src/*.exe
+/src/*.out

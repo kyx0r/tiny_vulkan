@@ -55,11 +55,11 @@ function cross()
 	if [ "$1" == "1" ]
 	then
 		hexshaders
-		$CC win32_tinyengine.c -luser32 -I./shaders -DHEX_SHADERS -o ../build/tinyengine.exe
+		$CC win32_tinyengine.c -luser32 -I./shaders -DHEX_SHADERS -o tinyengine.exe
 		exit 0
 	fi
 	shaders
-	$CC win32_tinyengine.c -luser32 -o ../build/tinyengine.exe
+	$CC win32_tinyengine.c -luser32 -o tinyengine.exe
 	exit 0
 }
 
@@ -68,12 +68,12 @@ function linuxx11()
 	if [ "$1" == "1" ]
 	then
 		hexshaders
-		gcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o ../build/tinyengine.exe
+		gcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
 		exit 0
 	fi
 	shaders
 	assertInstalled gcc
-	gcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o ../build/tinyengine.exe
+	gcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
 	exit 0
 }
 
@@ -82,12 +82,12 @@ function linuxx11tcc()
 	if [ "$1" == "1" ]
 	then
 		hexshaders
-		tcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o ../build/tinyengine.exe
+		tcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
 		exit 0
 	fi
 	shaders
 	assertInstalled gcc
-	tcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o ../build/tinyengine.exe
+	tcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
 	exit 0
 }
 

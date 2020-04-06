@@ -2,18 +2,8 @@
 #define VK_USE_PLATFORM_XLIB_KHR
 #define TINYENGINE_DEBUG
 
-#include <X11/Xlib.h>
+#include "tinycc.h"
 #include <pthread.h>
-#include <unistd.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dlfcn.h>
-#include <time.h>
-#include <math.h>
-#include <sys/mman.h>
-#include "sys/time.h"
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -49,6 +39,13 @@ void LogSetfp(FILE *Fp);
 
 #ifdef TINYENGINE_DEBUG
 
+void Pause()
+{
+	p("Press any key to exit ...");
+	char Buf[10];					
+	fgets(Buf, 10, stdin); 
+	exit(1); 
+}
 
 #define ASSERT(condition, message, ...) \
 	do { \
@@ -72,9 +69,7 @@ void LogSetfp(FILE *Fp);
 			LogExtra = true;\
 			LogNewLine = true;\
 			Fatal("Assertion %s failed in, %s line: %d ", #condition, __FILE__, __LINE__);\
-			char Buf[10];					\
-			fgets(Buf, 10, stdin); \
-			exit(1); \
+			Pause();\
 		} \
 	} while (false)
 
@@ -226,8 +221,8 @@ typedef struct linux_wnd
 } linux_wnd;
 
 static linux_wnd Wnd;
-KeySym Sym;
-uint64_t TimerOffset;
+KeySym KSym;
+u64 TimerOffset;
 vk_entity_t EntIds[1000];
 
 void SurfaceCallback(VkSurfaceKHR* Surface)
@@ -308,8 +303,8 @@ void *EventThread()
 			case KeyPress:
 				DbgEvent("KeyPress");
 				XKeyPressedEvent* e = (XKeyPressedEvent*)&(Event);
-				Sym = XLookupKeysym(e, 0);
-				if(Sym == XK_Escape)
+				KSym = XLookupKeysym(e, 0);
+				if(KSym == XK_Escape)
 				{
 					return NULL;
 				}
@@ -388,7 +383,164 @@ void *EventThread()
 	return NULL;
 }
 
-int main(int argc, char** argv)
+int main(int argc0, char** argv0)
+{
+	TCCState *s, *s1;
+	int ret, opt, n = 0, t = 0, done;
+	unsigned start_time = 0;
+	const char *first_file;
+	int argc;
+	char **argv;
+	FILE *ppfp = stdout;
+	
+redo:
+	argc = argc0, argv = argv0;	
+	s = s1 = tcc_new();
+
+	if(argc0 == 1)
+	{
+		opt = tcc_set_options(s1, 
+		"linux_x11_tinyengine.c -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl -run");
+	}
+	else
+	{
+		opt = tcc_parse_args(s, &argc, &argv, 1);
+	}
+	
+	if (n == 0)
+	{
+		if (opt == OPT_HELP)
+			return fputs(help, stdout), 0;
+		if (opt == OPT_HELP2)
+			return fputs(help2, stdout), 0;
+		if (opt == OPT_M32 || opt == OPT_M64)
+			tcc_tool_cross(s, argv, opt); /* never returns */
+		if (s->verbose)
+			printf(version);
+		if (opt == OPT_AR)
+			return tcc_tool_ar(s, argc, argv);
+		if (opt == OPT_V)
+			return 0;
+		if (opt == OPT_PRINT_DIRS)
+		{
+			/* initialize search dirs */
+			set_environment(s);
+			tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
+			print_search_dirs(s);
+			return 0;
+		}
+
+		if (s->nb_files == 0)
+			tcc_error("no input files\n");
+
+		if (s->output_type == TCC_OUTPUT_PREPROCESS)
+		{
+			if (s->outfile && 0!=strcmp("-",s->outfile))
+			{
+				ppfp = fopen(s->outfile, "w");
+				if (!ppfp)
+					tcc_error("could not write '%s'", s->outfile);
+			}
+		}
+		else if (s->output_type == TCC_OUTPUT_OBJ && !s->option_r)
+		{
+			if (s->nb_libraries)
+				tcc_error("cannot specify libraries with -c");
+			if (s->nb_files > 1 && s->outfile)
+				tcc_error("cannot specify output file with -c many files");
+		}
+		else
+		{
+			if (s->option_pthread)
+				tcc_set_options(s, "-lpthread");
+		}
+
+		if (s->do_bench)
+			start_time = getclock_ms();
+	}
+
+	set_environment(s);
+	if (s->output_type == 0)
+		s->output_type = TCC_OUTPUT_EXE;
+	tcc_set_output_type(s, s->output_type);
+	s->ppfp = ppfp;
+
+	if ((s->output_type == TCC_OUTPUT_MEMORY
+	        || s->output_type == TCC_OUTPUT_PREPROCESS)
+	        && (s->dflag & 16))   /* -dt option */
+	{
+		if (t)
+			s->dflag |= 32;
+		s->run_test = ++t;
+		if (n)
+			--n;
+	}
+
+	/* compile or add each files or library */
+	first_file = NULL, ret = 0;
+	do
+	{
+		struct filespec *f = s->files[n];
+		s->filetype = f->type;
+		if (f->type & AFF_TYPE_LIB)
+		{
+			if (tcc_add_library_err(s, f->name) < 0)
+				ret = 1;
+		}
+		else
+		{
+			if (1 == s->verbose)
+				printf("-> %s\n", f->name);
+			if (!first_file)
+				first_file = f->name;
+			if (tcc_add_file(s, f->name) < 0)
+				ret = 1;
+		}
+		done = ret || ++n >= s->nb_files;
+	}
+	while (!done && (s->output_type != TCC_OUTPUT_OBJ || s->option_r));
+
+	if (s->run_test)
+	{
+		t = 0;
+	}
+	else if (s->output_type == TCC_OUTPUT_PREPROCESS)
+	{
+		;
+	}
+	else if (0 == ret)
+	{
+		if (s->output_type == TCC_OUTPUT_MEMORY)
+		{
+#ifdef TCC_IS_NATIVE
+			ret = tcc_run(s, argc, argv);
+#endif
+		}
+		else
+		{
+			if (!s->outfile)
+				s->outfile = default_outputfile(s, first_file);
+			if (tcc_output_file(s, s->outfile))
+				ret = 1;
+			else if (s->gen_deps)
+				gen_makedeps(s, s->outfile, s->deps_outfile);
+		}
+	}
+
+	if (s->do_bench && done && !(t | ret))
+		tcc_print_stats(s, getclock_ms() - start_time);
+	tcc_delete(s);
+	if (!done)
+		goto redo; /* compile more files with -c */
+	if (t)
+		goto redo; /* run more tests with -dt -run */
+	if (ppfp && ppfp != stdout)
+		fclose(ppfp);
+	return ret;
+
+}
+
+int TinyEngineMain(int argc, char** argv)
 {
 	FILE* File = fopen("./log.txt","w");
 	LogSetfp(File);
@@ -452,7 +604,7 @@ int main(int argc, char** argv)
 
 	TimerOffset = Tiny_GetTimerValue();
 
-	while (Sym != XK_Escape)
+	while (KSym != XK_Escape)
 	{
 		VkBeginRendering();
 
@@ -554,4 +706,17 @@ int main(int argc, char** argv)
 	XCloseDisplay(Wnd.Display);
 	return 0;
 }
+
+
+
+#ifdef __TINYC__
+
+int _runmain()
+{
+	TinyEngineMain(0, NULL);
+	p("Exit TinyEngineMain");
+	return 0;
+}
+
+#endif
 

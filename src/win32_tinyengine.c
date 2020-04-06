@@ -291,10 +291,8 @@ redo:
 	argc = argc0, argv = argv0;	
 	s = s1 = tcc_new();
 
-#ifdef TCC_TARGET_PE
 	tcc_add_include_path(s, "./include/windows/winapi");
 	tcc_add_include_path(s, "./include/windows/");
-#endif
 
 	if(argc0 == 1)
 	{
@@ -317,10 +315,8 @@ redo:
 			printf(version);
 		if (opt == OPT_AR)
 			return tcc_tool_ar(s, argc, argv);
-#ifdef TCC_TARGET_PE
 		if (opt == OPT_IMPDEF)
 			return tcc_tool_impdef(s, argc, argv);
-#endif
 		if (opt == OPT_V)
 			return 0;
 		if (opt == OPT_PRINT_DIRS)

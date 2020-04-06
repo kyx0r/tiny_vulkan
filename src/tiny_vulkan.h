@@ -2958,10 +2958,10 @@ out:;
 	LoadHexShader(Fsampler2D, ArrayCount(Fsampler2D)*sizeof(u32));
 	LoadHexShader(Flightning, ArrayCount(Flightning)*sizeof(u32));
 #else
-	LoadShader("../src/shaders/Vbasic.spv");
-	LoadShader("../src/shaders/Fbasic.spv");
-	LoadShader("../src/shaders/Fsampler2D.spv");
-	LoadShader("../src/shaders/Flightning.spv");
+	LoadShader("./shaders/Vbasic.spv");
+	LoadShader("./shaders/Fbasic.spv");
+	LoadShader("./shaders/Fsampler2D.spv");
+	LoadShader("./shaders/Flightning.spv");
 #endif
 
 	//Basic
