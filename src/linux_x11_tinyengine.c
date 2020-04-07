@@ -654,7 +654,7 @@ int TinyEngineMain(int argc, char** argv)
 		Vertices[3].UVs[0] = 1.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		//VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
+		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
 
 		vertex_t Line[2];
 		Line[0].Xyz[0] = -0.7f;   //x
@@ -671,9 +671,7 @@ int TinyEngineMain(int argc, char** argv)
 		Line[1].Normals[1] = 0.0f; //g
 		Line[1].Normals[2] = 0.0f; //b
 
-		//VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[3]);
-
-		DrawPixCircle(100, 100, 50, 0xFFFFFFFF);
+		DrawPixCircle(800, 600, 50, 0xFFFFFFFF);
 
 		Vertices[0].Xyz[0] = -1.0f;   //x
 		Vertices[0].Xyz[1] = -1.0f;   //y
@@ -699,9 +697,20 @@ int TinyEngineMain(int argc, char** argv)
 		Vertices[3].UVs[0] = 0.0f;
 		Vertices[3].UVs[1] = 1.0f;
 
-		//VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
 
-		VkDrawLightnings(200, 200, &EntIds[4]);
+		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
+
+		VkDrawLightnings(300, 200, 1000, 1000, 0.75f, 0.0f, &EntIds[3]);
+		if(KSym == XK_Tab)
+		{
+			EntIds[3].Tag = 2;
+		}
+
+	//	VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[20]);
+
+		//VkDrawLightnings(400, 400, &EntIds[5]);
+		//VkDrawLightnings(1000, 1000, &EntIds[6]);
+		//VkDrawLightnings(200, 800, &EntIds[7]);
 
 		VkEndRendering();
 	}

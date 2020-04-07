@@ -657,6 +657,9 @@ typedef struct
 typedef struct
 {
 	f32 Resolution[2];
+	f32 Point[2];
+	f32 Angle;
+	f32 Blend;
 	f32 Time;
 } ubo_lightning_t;
 
@@ -3437,7 +3440,7 @@ void DrawPixCircle(s32 CentreX, s32 CentreY, s32 Radius, s32 Color)
 	}
 }
 
-void VkDrawLightnings(u32 X, u32 Y, vk_entity_t *Id)
+void VkDrawLightnings(u32 ResX, u32 ResY, u32 PointX, u32 PointY, float Blend, float Angle, vk_entity_t *Id)
 {
 	if(!Id->Tag)
 	{
@@ -3450,16 +3453,20 @@ void VkDrawLightnings(u32 X, u32 Y, vk_entity_t *Id)
 		if(Id->Tag == 2)
 		{
 			ZFree(Id->Ubuf, 3);
-			Id->Ibuf = NULL;
+			Id->Ubuf = NULL;
 			return;
 		}
 		ASSERT(Id->Ubuf, "Invalid uniform pointer.");
 	}
 
-	ubo_lightning_t *ptr = (ubo_lightning_t*) Id->Ubuf;
-	ptr->Resolution[0] = X;
-	ptr->Resolution[1] = Y;
-	ptr->Time = Tiny_GetTime();
+	ubo_lightning_t *Ptr = (ubo_lightning_t*) Id->Ubuf;
+	Ptr->Resolution[0] = ResX;
+	Ptr->Resolution[1] = ResY;
+	Ptr->Point[0] = PointY;
+	Ptr->Point[1] = PointX;
+	Ptr->Angle = Angle;
+	Ptr->Blend = Blend;
+	Ptr->Time = Tiny_GetTime();
 	u32 UOffset = Id->Ubuf - (u8*)UniformBuffers[0].Data;
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[4]);
 	vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelineLayouts[2], 0, 1, &FragUniformDescriptorSet, 1, &UOffset);
