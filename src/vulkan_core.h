@@ -11140,4 +11140,5 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetDeviceGroupSurfacePresentModes2EXT(
 
 #endif //VK_USE_PLATFORM_WIN32_KHR
 
-
+//the only platform exception.
+void SurfaceCallback(VkSurfaceKHR* Surface);
