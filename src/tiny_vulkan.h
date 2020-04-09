@@ -626,8 +626,7 @@ VkClearColorValue ColorValue;
 VkImageSubresourceRange ImageSubResourceRange;
 VkSubmitInfo SubmitInfo;
 VkPresentInfoKHR PresentInfo;
-u32 ImageIndexes[10];
-VkPipelineStageFlags VkPipelineSF[10];
+u32 ImageIndex;
 //POST INIT
 
 //SHADERS
@@ -2141,8 +2140,8 @@ _continue:;
 	VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(GpuDevice, VkSurface, &ModesCount, &PresentModes[0]));
 
 	//TODO(Kyryl): This is important, need a proper fallback if not listed.
-	PresentationMode = VK_PRESENT_MODE_FIFO_KHR;
-	//PresentationMode = VK_PRESENT_MODE_MAILBOX_KHR;
+	//PresentationMode = VK_PRESENT_MODE_FIFO_KHR;
+	PresentationMode = VK_PRESENT_MODE_MAILBOX_KHR;
 	for(i = 0; i<ModesCount; i++)
 	{
 		if(PresentModes[i]==PresentationMode)
@@ -3002,17 +3001,6 @@ out:;
 	//POST INIT
 	//(Kyryl): Prepares vulkan objects used at real time rendering.
 
-	//Sanity checks
-	MAX_FRAMES_IN_FLIGHT = SwchImageCount;
-	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_SEMAPHORES, "MAX_FRAMES_IN_FLIGHT > NUM_SEMAPHORES");
-	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_FENCES, "MAX_FRAMES_IN_FLIGHT > NUM_FENCES");
-
-	CurrentFrame = 0;
-
-	for(u32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-	{
-		VkPipelineSF[i] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-	}
 	ColorValue.float32[0] = 0;
 	ColorValue.float32[1] = 0;
 	ColorValue.float32[2] = 0;
@@ -3032,10 +3020,11 @@ out:;
 	SubmitInfo.pWaitSemaphores = &VkSignalSemaphores[0];
 	SubmitInfo.pCommandBuffers = &VkCommandBuffers[0];
 	SubmitInfo.pSignalSemaphores = &VkWaitSemaphores[0];
-	SubmitInfo.waitSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
-	SubmitInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
-	SubmitInfo.signalSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
-	SubmitInfo.pWaitDstStageMask = &VkPipelineSF[0];
+	SubmitInfo.waitSemaphoreCount = 1;
+	SubmitInfo.commandBufferCount = 1;
+	SubmitInfo.signalSemaphoreCount = 1;
+	VkPipelineStageFlags VkPipelineSF = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	SubmitInfo.pWaitDstStageMask = &VkPipelineSF;
 
 	PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	PresentInfo.pNext = NULL;
@@ -3043,7 +3032,7 @@ out:;
 	PresentInfo.swapchainCount = 1;
 	PresentInfo.pResults = NULL;
 	PresentInfo.pSwapchains = &VkSwapchains[0];
-	PresentInfo.pImageIndices = &ImageIndexes[0];
+	PresentInfo.pImageIndices = &ImageIndex;
 	PresentInfo.pWaitSemaphores = &VkWaitSemaphores[0];
 
 #ifdef TINYENGINE_DEBUG
@@ -3078,7 +3067,7 @@ void BlitSurface()
 	MemBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	MemBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	MemBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	MemBarrier.image = VkSwchImages[ImageIndexes[CurrentFrame]];
+	MemBarrier.image = VkSwchImages[ImageIndex];
 	MemBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	MemBarrier.subresourceRange.baseMipLevel = 0;
 	MemBarrier.subresourceRange.levelCount = 1;
@@ -3118,7 +3107,7 @@ void BlitSurface()
 	vkCmdBlitImage
 		(CommandBuffer,
 		 PixelTexture.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		 VkSwchImages[ImageIndexes[CurrentFrame]], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		 VkSwchImages[ImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		 1,
 		 &imageBlitRegion,
 		 VK_FILTER_LINEAR);
@@ -3127,7 +3116,7 @@ void BlitSurface()
 	MemBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
 	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
 
-	MemBarrier.image = VkSwchImages[ImageIndexes[CurrentFrame]];
+	MemBarrier.image = VkSwchImages[ImageIndex];
 	MemBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	MemBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	vkCmdPipelineBarrier(CommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &MemBarrier);
@@ -3139,7 +3128,7 @@ void VkBeginRendering()
 
 	//tell hardware to not wait more than 1 second.
 wait:
-	result = vkAcquireNextImageKHR(LogicalDevice, VkSwapchains[0], 1000000000, VkSignalSemaphores[CurrentFrame], VK_NULL_HANDLE, &ImageIndexes[CurrentFrame]);
+	result = vkAcquireNextImageKHR(LogicalDevice, VkSwapchains[0], 1000000000, VkSignalSemaphores[0], VK_NULL_HANDLE, &ImageIndex);
 	switch( result )
 	{
 	case VK_SUCCESS:
@@ -3152,27 +3141,6 @@ wait:
 		goto wait;
 	case VK_ERROR_OUT_OF_DATE_KHR:
 		Info("VkBeginRendering: VK_ERROR_OUT_OF_DATE_KHR");
-		if(CurrentFrame != 0)
-		{
-			//cut end the frame cycle
-			vkResetFences(LogicalDevice, 1, &VkFences[0]);
-			SubmitInfo.waitSemaphoreCount = CurrentFrame;
-			SubmitInfo.commandBufferCount = CurrentFrame;
-			SubmitInfo.signalSemaphoreCount = CurrentFrame;
-			VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
-			vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
-			for(u32 i = 0; i < CurrentFrame; i++)
-			{
-				PresentInfo.pImageIndices = &ImageIndexes[i];
-				PresentInfo.pWaitSemaphores = &VkWaitSemaphores[i];
-				vkQueuePresentKHR(VkQueues[0], &PresentInfo);
-			}
-
-			SubmitInfo.waitSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
-			SubmitInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
-			SubmitInfo.signalSemaphoreCount = MAX_FRAMES_IN_FLIGHT;
-			CurrentFrame = 0;
-		}
 		RebuildRenderer();
 		goto wait;
 	default:
@@ -3182,7 +3150,7 @@ wait:
 
 	while(SubmitStagingBuffer()){/*nothing*/};
 
-	CommandBuffer = VkCommandBuffers[CurrentFrame];
+	CommandBuffer = VkCommandBuffers[0];
 
 	VkCommandBufferBeginInfo CommandBufferBI;
 	CommandBufferBI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -3209,7 +3177,7 @@ wait:
 	RenderPassBI.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	RenderPassBI.pNext = NULL;
 	RenderPassBI.renderPass = VkRenderPasses[0];
-	RenderPassBI.framebuffer = VkFramebuffers[ImageIndexes[CurrentFrame]];
+	RenderPassBI.framebuffer = VkFramebuffers[ImageIndex];
 	RenderPassBI.renderArea = RenderArea;
 	RenderPassBI.clearValueCount = 2;
 	RenderPassBI.pClearValues = VkClearValues;
@@ -3237,34 +3205,11 @@ void VkEndRendering()
 #endif
 	VK_CHECK(vkEndCommandBuffer(CommandBuffer));
 
-	if(CurrentFrame != MAX_FRAMES_IN_FLIGHT-1)
-	{
-		CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-		return;
-	}
 	vkResetFences(LogicalDevice, 1, &VkFences[0]);
 	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
-
-	b32 Dated = false;
-	for(u32 i = 0; i < CurrentFrame+1; i++)
-	{
-		PresentInfo.pImageIndices = &ImageIndexes[i];
-		PresentInfo.pWaitSemaphores = &VkWaitSemaphores[i];
-		VkResult result = vkQueuePresentKHR(VkQueues[0], &PresentInfo);
-		switch(result)
-		{
-			case VK_SUCCESS:
-				break;
-			case VK_ERROR_OUT_OF_DATE_KHR:
-				Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
-				Dated = true;
-				break;
-			default:
-				VK_CHECK(result);
-				return;
-		}
-	}
+	VkResult result = vkQueuePresentKHR(VkQueues[0], &PresentInfo);
 	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
+
 #ifdef TINYENGINE_DEBUG
 	u64 QueryResults[2];
 	VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
@@ -3279,14 +3224,20 @@ void VkEndRendering()
 	HighTime = Tiny_GetTime();
 
 	//TODO put this somewhere else
-	p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
+	//p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
 #endif
-	if(Dated)
+	switch(result)
 	{
-		RebuildRenderer();
+		case VK_SUCCESS:
+			break;
+		case VK_ERROR_OUT_OF_DATE_KHR:
+			Info("VkEndRendering: VK_ERROR_OUT_OF_DATE_KHR");
+			RebuildRenderer();
+			break;
+		default:
+			VK_CHECK(result);
+			return;
 	}
-	CurrentFrame = (CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-	ASSERT(!CurrentFrame, "CurrentFrame != 0");
 	return;
 }
 
