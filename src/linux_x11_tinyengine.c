@@ -75,6 +75,11 @@ f64 Tiny_GetTime()
 	return (f64)(Tiny_GetTimerValue()-TimerOffset) / 1000000;
 }
 
+void Tiny_Yeild(s32 Mics)
+{
+	usleep(Mics);
+}
+
 void ProcessEvents()
 {
 	//see https://tronche.com/gui/x/xlib/events/structures.html 
@@ -406,6 +411,7 @@ int TinyEngineMain(int argc, char** argv)
 
 	while (KSym != XK_Escape)
 	{
+		Tiny_FpsCalc();
 		VkBeginRendering();
 
 		//DRAW commands go in between Begin and End respectively.
@@ -509,6 +515,7 @@ int TinyEngineMain(int argc, char** argv)
 		//VkDrawLightnings(200, 800, &EntIds[7]);
 
 		VkEndRendering();
+		Tiny_FpsWait();
 	}
 	p("Exit");
 	DeInitVulkan();

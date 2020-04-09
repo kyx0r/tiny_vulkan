@@ -398,6 +398,10 @@ typedef double f64;
 #define	Min(a, b)(((a) < (b)) ? (a) : (b))
 #define	Max(a, b)(((a) > (b)) ? (a) : (b))
 
+#define	CLAMP(_minval, x, _maxval)		\
+	((x) < (_minval) ? (_minval) :		\
+	 (x) > (_maxval) ? (_maxval) : (x))
+
 //Logger & sprintf
 
 /*
