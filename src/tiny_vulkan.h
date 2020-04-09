@@ -3003,7 +3003,7 @@ out:;
 	//(Kyryl): Prepares vulkan objects used at real time rendering.
 
 	//Sanity checks
-	MAX_FRAMES_IN_FLIGHT = SwchImageCount - 1;
+	MAX_FRAMES_IN_FLIGHT = SwchImageCount;
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_SEMAPHORES, "MAX_FRAMES_IN_FLIGHT > NUM_SEMAPHORES");
 	ASSERT(MAX_FRAMES_IN_FLIGHT < NUM_FENCES, "MAX_FRAMES_IN_FLIGHT > NUM_FENCES");
 
@@ -3244,7 +3244,6 @@ void VkEndRendering()
 	}
 	vkResetFences(LogicalDevice, 1, &VkFences[0]);
 	VK_CHECK(vkQueueSubmit(VkQueues[0], 1, &SubmitInfo, VkFences[0]));
-	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
 
 	b32 Dated = false;
 	for(u32 i = 0; i < CurrentFrame+1; i++)
@@ -3264,23 +3263,24 @@ void VkEndRendering()
 				VK_CHECK(result);
 				return;
 		}
-#ifdef TINYENGINE_DEBUG
-		u64 QueryResults[2];
-		VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
-					sizeof(QueryResults), QueryResults, sizeof(QueryResults[0]), VK_QUERY_RESULT_64_BIT));
-
-		f64 FrameGpuBegin = (f64)QueryResults[0] * DeviceProperties.limits.timestampPeriod * 1e-6;
-		f64 FrameGpuEnd = (f64)QueryResults[1] * DeviceProperties.limits.timestampPeriod * 1e-6;
-		f64 FrameCpuEnd = Tiny_GetTime() * 1000;
-
-		FrameCpuAvg = FrameCpuAvg * 0.95 + (FrameCpuEnd - (HighTime*1000)) * 0.05;
-		FrameGpuAvg = FrameGpuAvg * 0.95 + (FrameGpuEnd - FrameGpuBegin) * 0.05;
-		HighTime = Tiny_GetTime();
-
-		//TODO put this somewhere else
-		//p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
-#endif
 	}
+	vkWaitForFences(LogicalDevice, 1, &VkFences[0], VK_TRUE, UINT64_MAX);
+#ifdef TINYENGINE_DEBUG
+	u64 QueryResults[2];
+	VK_CHECK(vkGetQueryPoolResults(LogicalDevice, QueryPool, 0, ArrayCount(QueryResults),
+				sizeof(QueryResults), QueryResults, sizeof(QueryResults[0]), VK_QUERY_RESULT_64_BIT));
+
+	f64 FrameGpuBegin = (f64)QueryResults[0] * DeviceProperties.limits.timestampPeriod * 1e-6;
+	f64 FrameGpuEnd = (f64)QueryResults[1] * DeviceProperties.limits.timestampPeriod * 1e-6;
+	f64 FrameCpuEnd = Tiny_GetTime() * 1000;
+
+	FrameCpuAvg = FrameCpuAvg * 0.95 + (FrameCpuEnd - (HighTime*1000)) * 0.05;
+	FrameGpuAvg = FrameGpuAvg * 0.95 + (FrameGpuEnd - FrameGpuBegin) * 0.05;
+	HighTime = Tiny_GetTime();
+
+	//TODO put this somewhere else
+	p("cpu: %.2f ms; gpu: %.2f ms; ", FrameCpuAvg, FrameGpuAvg);
+#endif
 	if(Dated)
 	{
 		RebuildRenderer();
