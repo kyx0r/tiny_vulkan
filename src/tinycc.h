@@ -321,6 +321,7 @@ enum __va_arg_type
 
 #if defined __GNUC__ || defined __MINGW32__ || defined __MINGW64__
 #include <stdarg.h>
+#include <stddef.h>
 #else
 
 void __va_start(__va_list_struct *ap, void *fp)
@@ -47926,7 +47927,7 @@ static void tcc_assemble_inline(TCCState *s1, char *str, int len, int global)
 {
 	const int *saved_macro_ptr = macro_ptr;
 	int dotid = set_idnum('.', IS_ID);
-	
+
 	if(s1->intelasm)
 	{
  		char intelstr[len*2]; //this should be enough, intel syntax is slimmer than at&t

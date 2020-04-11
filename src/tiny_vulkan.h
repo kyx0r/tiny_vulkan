@@ -3417,7 +3417,7 @@ void VkDrawLightnings(u32 ResX, u32 ResY, u32 PointX, u32 PointY, float Blend, f
 	Ptr->Point[1] = PointX;
 	Ptr->Angle = Angle;
 	Ptr->Blend = Blend;
-	Ptr->Time = Tiny_GetTime();
+	Ptr->Time = TimeHigh;
 	u32 UOffset = Id->Ubuf - (u8*)UniformBuffers[0].Data;
 	vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelines[4]);
 	vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, VkPipelineLayouts[2], 0, 1, &FragUniformDescriptorSet, 1, &UOffset);

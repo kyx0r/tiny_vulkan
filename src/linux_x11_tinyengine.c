@@ -1,7 +1,7 @@
 #define LINUX_LEAN_AND_MEAN
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_XLIB_KHR
-#define TINYENGINE_DEBUG
+//#define TINYENGINE_DEBUG
 
 #include "tinycc.h"
 #include "tinyengine.h"
@@ -9,6 +9,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <sys/inotify.h>
 #include "vulkan_core.h"
 #include "tiny_vulkan.h"
 
@@ -79,6 +80,7 @@ void Tiny_Yeild(s32 Mics)
 {
 	usleep(Mics);
 }
+
 
 void ProcessEvents()
 {
@@ -187,6 +189,184 @@ void *EventThread()
 	return NULL;
 }
 
+int TinyEngineMain(int argc, char** argv)
+{
+	FILE* File = fopen("./log.txt","w");
+	LogSetfp(File);
+
+	Wnd.Display = XOpenDisplay(getenv("DISPLAY"));
+	if (Wnd.Display == NULL)
+	{
+		Fatal("Cannot open display!");
+		exit(1);
+	}
+
+	Wnd.Screen = XDefaultScreen(Wnd.Display);
+
+	Wnd.Attr.background_pixel = XBlackPixel(Wnd.Display, Wnd.Screen);
+	Wnd.ValueMask |= CWBackPixel;
+	Wnd.Depth = DefaultDepth(Wnd.Display, Wnd.Screen);
+	Wnd.RootWindow = RootWindow(Wnd.Display, DefaultScreen(Wnd.Display));
+	Wnd.Width = 640;
+	Wnd.Height = 480;
+	Wnd.XXyz = 0;
+	Wnd.YXyz = 0;
+	Wnd.BorderWidth = 0;
+	Wnd.Window = XCreateWindow(Wnd.Display, XRootWindow(Wnd.Display, Wnd.Screen),
+			Wnd.XXyz, Wnd.YXyz, Wnd.Width, Wnd.Height,
+			Wnd.BorderWidth, Wnd.Depth, InputOutput,
+			DefaultVisual(Wnd.Display, Wnd.Screen),
+			Wnd.ValueMask, &Wnd.Attr);
+
+	XSelectInput(Wnd.Display, Wnd.Window, 
+			ExposureMask | KeyPressMask | KeyReleaseMask | PointerMotionMask |
+			ButtonPressMask | ButtonReleaseMask  | StructureNotifyMask | ResizeRequest |
+			ButtonPress | ButtonRelease);
+
+	XMapWindow(Wnd.Display, Wnd.Window);
+	XInitThreads();
+
+	// Set window title
+	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
+	//This call is crucial because the window size may be changed by window manager.
+	ProcessEvents();
+	pthread_t Ithread;
+	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
+
+	const char *RequiredExtensions[] =
+	{
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+#ifdef TINYENGINE_DEBUG
+		VK_EXT_DEBUG_REPORT_EXTENSION_NAME
+#endif
+	};
+
+	void* VulkanLoader = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_DEEPBIND);
+	PFN_vkGetInstanceProcAddr ProcAddr = dlsym(VulkanLoader, "vkGetInstanceProcAddr");
+	if(!InitVulkan(&ProcAddr, ArrayCount(RequiredExtensions), RequiredExtensions))
+	{
+		Fatal("Failed to initialize vulkan runtime!");
+		exit(1);
+	}
+
+
+	TimerOffset = Tiny_GetTimerValue();
+	vk_entity_t EntIds[1000] = {0};
+
+
+	Tiny_AddWatch("./");
+
+
+	while (KSym != XK_Escape)
+	{
+		Tiny_FpsCalc();
+		Tiny_WatchUpdate();
+		VkBeginRendering();
+
+		//DRAW commands go in between Begin and End respectively.
+
+		vertex_t Vertices[4];
+		u32 indeces[6] = {0, 1, 2, 2, 3, 0};
+
+		Vertices[0].Xyz[0] = -0.5f;   //x
+		Vertices[0].Xyz[1] = -0.5f;   //y
+		Vertices[0].Xyz[2] = 0.0f;    //z
+		Vertices[0].Normals[0] = 1.0f; //r
+		Vertices[0].Normals[1] = 0.0f; //g
+		Vertices[0].Normals[2] = 0.0f; //b
+		Vertices[0].UVs[0] = 1.0f;
+		Vertices[0].UVs[1] = 0.0f;
+
+		Vertices[1].Xyz[0] = 0.5f;
+		Vertices[1].Xyz[1] = -0.5f;
+		Vertices[1].Xyz[2] = 0.0f;
+		Vertices[1].Normals[0] = 0.0f;
+		Vertices[1].Normals[1] = 1.0f;
+		Vertices[1].Normals[2] = 0.0f;
+		Vertices[1].UVs[0] = 0.0f;
+		Vertices[1].UVs[1] = 0.0f;
+
+		Vertices[2].Xyz[0] = 0.5f;
+		Vertices[2].Xyz[1] = 0.5f;
+		Vertices[2].Xyz[2] = 0.0f;
+		Vertices[2].Normals[0] = 0.0f;
+		Vertices[2].Normals[1] = 0.0f;
+		Vertices[2].Normals[2] = 1.0f;
+		Vertices[2].UVs[0] = 0.0f;
+		Vertices[2].UVs[1] = 1.0f;
+
+		Vertices[3].Xyz[0] = -0.5f;
+		Vertices[3].Xyz[1] = 0.5f;
+		Vertices[3].Xyz[2] = 0.0f;
+		Vertices[3].Normals[0] = 1.0f;
+		Vertices[3].Normals[1] = 1.0f;
+		Vertices[3].Normals[2] = 1.0f;
+		Vertices[3].UVs[0] = 1.0f;
+		Vertices[3].UVs[1] = 1.0f;
+
+		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
+
+		vertex_t Line[2];
+		Line[0].Xyz[0] = -0.7f;   //x
+		Line[0].Xyz[1] = -0.7f;   //y
+		Line[0].Xyz[2] = 0.0f;   //z
+		Line[0].Normals[0] = 1.0f; //r
+		Line[0].Normals[1] = 0.0f; //g
+		Line[0].Normals[2] = 0.0f; //b
+
+		Line[1].Xyz[0] = 0.7f;
+		Line[1].Xyz[1] = 0.7f;
+		Line[1].Xyz[2] = 0.0f;   //z
+		Line[1].Normals[0] = 1.0f; //r
+		Line[1].Normals[1] = 0.0f; //g
+		Line[1].Normals[2] = 0.0f; //b
+
+		DrawPixCircle(800, 600, 50, 0xFFFFFFFF);
+		DrawPixCircle(100, 600, 50, 0xFFFFFFFF);
+
+		Vertices[0].Xyz[0] = -1.0f;   //x
+		Vertices[0].Xyz[1] = -1.0f;   //y
+		Vertices[0].Xyz[2] = 0.0f;   //z
+		Vertices[0].UVs[0] = 0.0f;
+		Vertices[0].UVs[1] = 0.0f;
+
+		Vertices[1].Xyz[0] = 1.0f;
+		Vertices[1].Xyz[1] = -1.0f;
+		Vertices[1].Xyz[2] = 0.0f;
+		Vertices[1].UVs[0] = 1.0f;
+		Vertices[1].UVs[1] = 0.0f;
+
+		Vertices[2].Xyz[0] = 1.0f;
+		Vertices[2].Xyz[1] = 1.0f;
+		Vertices[2].Xyz[2] = 0.0f;
+		Vertices[2].UVs[0] = 1.0f;
+		Vertices[2].UVs[1] = 1.0f;
+
+		Vertices[3].Xyz[0] = -1.0f;
+		Vertices[3].Xyz[1] = 1.0f;
+		Vertices[3].Xyz[2] = 0.0f;
+		Vertices[3].UVs[0] = 0.0f;
+		Vertices[3].UVs[1] = 1.0f;
+
+
+		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
+
+		VkDrawLightnings(300, 200, 1000, 1000, 0.75f, 0.0f, &EntIds[3]);
+		if(KSym == XK_Tab)
+		{
+			EntIds[3].Tag = 2;
+		}
+
+		VkEndRendering();
+		Tiny_FpsWait();
+	}
+	DeInitVulkan();
+	dlclose(VulkanLoader);
+	XCloseDisplay(Wnd.Display);
+	return 0;
+}
+
 int main(int argc0, char** argv0)
 {
 	TCCState *s, *s1;
@@ -196,7 +376,6 @@ int main(int argc0, char** argv0)
 	int argc;
 	char **argv;
 	FILE *ppfp = stdout;
-	
 redo:
 	argc = argc0, argv = argv0;	
 	s = s1 = tcc_new();
@@ -344,188 +523,6 @@ redo:
 
 }
 
-int TinyEngineMain(int argc, char** argv)
-{
-	FILE* File = fopen("./log.txt","w");
-	LogSetfp(File);
-
-	Wnd.Display = XOpenDisplay(getenv("DISPLAY"));
-	if (Wnd.Display == NULL)
-	{
-		Fatal("Cannot open display!");
-		exit(1);
-	}
-
-	Wnd.Screen = XDefaultScreen(Wnd.Display);
-
-	Wnd.Attr.background_pixel = XBlackPixel(Wnd.Display, Wnd.Screen);
-	Wnd.ValueMask |= CWBackPixel;
-	Wnd.Depth = DefaultDepth(Wnd.Display, Wnd.Screen);
-	Wnd.RootWindow = RootWindow(Wnd.Display, DefaultScreen(Wnd.Display));
-	Wnd.Width = 640;
-	Wnd.Height = 480;
-	Wnd.XXyz = 0;
-	Wnd.YXyz = 0;
-	Wnd.BorderWidth = 0;
-	Wnd.Window = XCreateWindow(Wnd.Display, XRootWindow(Wnd.Display, Wnd.Screen),
-			Wnd.XXyz, Wnd.YXyz, Wnd.Width, Wnd.Height,
-			Wnd.BorderWidth, Wnd.Depth, InputOutput,
-			DefaultVisual(Wnd.Display, Wnd.Screen),
-			Wnd.ValueMask, &Wnd.Attr);
-
-	XSelectInput(Wnd.Display, Wnd.Window, 
-			ExposureMask | KeyPressMask | KeyReleaseMask | PointerMotionMask |
-			ButtonPressMask | ButtonReleaseMask  | StructureNotifyMask | ResizeRequest |
-			ButtonPress | ButtonRelease);
-
-	XMapWindow(Wnd.Display, Wnd.Window);
-	XInitThreads();
-
-	// Set window title
-	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
-	//This call is crucial because the window size may be changed by window manager.
-	ProcessEvents();
-	pthread_t Ithread;
-	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
-
-	const char *RequiredExtensions[] =
-	{
-		VK_KHR_SURFACE_EXTENSION_NAME,
-		VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
-#ifdef TINYENGINE_DEBUG
-		VK_EXT_DEBUG_REPORT_EXTENSION_NAME
-#endif
-	};
-
-	void* VulkanLoader = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_DEEPBIND);
-	PFN_vkGetInstanceProcAddr ProcAddr = dlsym(VulkanLoader, "vkGetInstanceProcAddr");
-	if(!InitVulkan(&ProcAddr, ArrayCount(RequiredExtensions), RequiredExtensions))
-	{
-		Fatal("Failed to initialize vulkan runtime!");
-		exit(1);
-	}
-
-
-	TimerOffset = Tiny_GetTimerValue();
-	vk_entity_t EntIds[1000] = {0};
-
-	while (KSym != XK_Escape)
-	{
-		Tiny_FpsCalc();
-		VkBeginRendering();
-
-		//DRAW commands go in between Begin and End respectively.
-
-		vertex_t Vertices[4];
-		u32 indeces[6] = {0, 1, 2, 2, 3, 0};
-
-		Vertices[0].Xyz[0] = -0.5f;   //x
-		Vertices[0].Xyz[1] = -0.5f;   //y
-		Vertices[0].Xyz[2] = 0.0f;    //z
-		Vertices[0].Normals[0] = 1.0f; //r
-		Vertices[0].Normals[1] = 0.0f; //g
-		Vertices[0].Normals[2] = 0.0f; //b
-		Vertices[0].UVs[0] = 1.0f;
-		Vertices[0].UVs[1] = 0.0f;
-
-		Vertices[1].Xyz[0] = 0.5f;
-		Vertices[1].Xyz[1] = -0.5f;
-		Vertices[1].Xyz[2] = 0.0f;
-		Vertices[1].Normals[0] = 0.0f;
-		Vertices[1].Normals[1] = 1.0f;
-		Vertices[1].Normals[2] = 0.0f;
-		Vertices[1].UVs[0] = 0.0f;
-		Vertices[1].UVs[1] = 0.0f;
-
-		Vertices[2].Xyz[0] = 0.5f;
-		Vertices[2].Xyz[1] = 0.5f;
-		Vertices[2].Xyz[2] = 0.0f;
-		Vertices[2].Normals[0] = 0.0f;
-		Vertices[2].Normals[1] = 0.0f;
-		Vertices[2].Normals[2] = 1.0f;
-		Vertices[2].UVs[0] = 0.0f;
-		Vertices[2].UVs[1] = 1.0f;
-
-		Vertices[3].Xyz[0] = -0.5f;
-		Vertices[3].Xyz[1] = 0.5f;
-		Vertices[3].Xyz[2] = 0.0f;
-		Vertices[3].Normals[0] = 1.0f;
-		Vertices[3].Normals[1] = 1.0f;
-		Vertices[3].Normals[2] = 1.0f;
-		Vertices[3].UVs[0] = 1.0f;
-		Vertices[3].UVs[1] = 1.0f;
-
-		VkDrawBasic(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], &EntIds[0]);
-
-		vertex_t Line[2];
-		Line[0].Xyz[0] = -0.7f;   //x
-		Line[0].Xyz[1] = -0.7f;   //y
-		Line[0].Xyz[2] = 0.0f;   //z
-		Line[0].Normals[0] = 1.0f; //r
-		Line[0].Normals[1] = 0.0f; //g
-		Line[0].Normals[2] = 0.0f; //b
-
-		Line[1].Xyz[0] = 0.7f;
-		Line[1].Xyz[1] = 0.7f;
-		Line[1].Xyz[2] = 0.0f;   //z
-		Line[1].Normals[0] = 1.0f; //r
-		Line[1].Normals[1] = 0.0f; //g
-		Line[1].Normals[2] = 0.0f; //b
-
-		DrawPixCircle(800, 600, 50, 0xFFFFFFFF);
-
-		Vertices[0].Xyz[0] = -1.0f;   //x
-		Vertices[0].Xyz[1] = -1.0f;   //y
-		Vertices[0].Xyz[2] = 0.0f;   //z
-		Vertices[0].UVs[0] = 0.0f;
-		Vertices[0].UVs[1] = 0.0f;
-
-		Vertices[1].Xyz[0] = 1.0f;
-		Vertices[1].Xyz[1] = -1.0f;
-		Vertices[1].Xyz[2] = 0.0f;
-		Vertices[1].UVs[0] = 1.0f;
-		Vertices[1].UVs[1] = 0.0f;
-
-		Vertices[2].Xyz[0] = 1.0f;
-		Vertices[2].Xyz[1] = 1.0f;
-		Vertices[2].Xyz[2] = 0.0f;
-		Vertices[2].UVs[0] = 1.0f;
-		Vertices[2].UVs[1] = 1.0f;
-
-		Vertices[3].Xyz[0] = -1.0f;
-		Vertices[3].Xyz[1] = 1.0f;
-		Vertices[3].Xyz[2] = 0.0f;
-		Vertices[3].UVs[0] = 0.0f;
-		Vertices[3].UVs[1] = 1.0f;
-
-
-		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
-
-		VkDrawLightnings(300, 200, 1000, 1000, 0.75f, 0.0f, &EntIds[3]);
-		VkDrawLightnings(700, 200, 1000, 1000, 0.75f, 0.0f, &EntIds[4]);
-		if(KSym == XK_Tab)
-		{
-			EntIds[3].Tag = 2;
-		}
-
-	//	VkDrawLine(ArrayCount(Line), &Line[0], &EntIds[20]);
-
-		//VkDrawLightnings(400, 400, &EntIds[5]);
-		//VkDrawLightnings(1000, 1000, &EntIds[6]);
-		//VkDrawLightnings(200, 800, &EntIds[7]);
-
-		VkEndRendering();
-		Tiny_FpsWait();
-	}
-	p("Exit");
-	DeInitVulkan();
-	dlclose(VulkanLoader);
-	XCloseDisplay(Wnd.Display);
-	return 0;
-}
-
-
-
 #ifdef __TINYC__
 
 int _runmain()
@@ -537,3 +534,77 @@ int _runmain()
 
 #endif
 
+s32 Mfd;
+struct timeval MTimeOut;
+fd_set MDescriptorSet;
+u32 WatchIdx;
+s32 FileWIds[10];
+
+void Tiny_AddWatch(char* File)
+{
+	if(!Mfd)
+	{
+		Mfd = inotify_init();
+		if (Mfd < 0)
+		{
+			Error("File watch init.");
+			return;
+		}
+		MTimeOut.tv_sec = 0;
+		MTimeOut.tv_usec = 0;
+		FD_ZERO(&MDescriptorSet);
+	}
+	s32 Wd = inotify_add_watch(Mfd, File, IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_MOVED_FROM | IN_DELETE);
+	if (Wd < 0)
+	{
+		if(errno == ENOENT)
+		{
+			Error("File not found: %s", File);
+		}
+		else
+		{
+			Error("Filewatch error: %s", strerror(errno));
+		}
+	}
+	FileWIds[WatchIdx++] = Wd;
+}
+
+void Tiny_WatchUpdate()
+{
+	FD_SET(Mfd, &MDescriptorSet);
+
+	s32 ret = select(Mfd + 1, &MDescriptorSet, NULL, NULL, &MTimeOut);
+	if(ret < 0)
+	{
+		Error("Select");
+	}
+	else if(FD_ISSET(Mfd, &MDescriptorSet))
+	{
+		s32 len, i = 0;
+		char Buff[sizeof(struct inotify_event)*1024];
+
+		len = read (Mfd, Buff, sizeof(struct inotify_event)*1024);
+
+		while (i < len)
+		{
+			struct inotify_event *pevent = (struct inotify_event *)&Buff[i];
+			if(pevent->mask & IN_CLOSE_WRITE)
+			{
+				if(strstr(pevent->name, ".c") || strstr(pevent->name, ".h"))
+				{
+					main(1, NULL);
+					//break;
+				}
+			}
+			//find that file by id
+			for(u32 i = 0; i < WatchIdx; i++)
+			{
+				//p("Bitch %s ", pevent->name);
+				//if(pevent->wd == FileWIds[i])
+				//{
+				//}
+			}
+			i += sizeof(struct inotify_event) + pevent->len;
+		}
+	}
+}
