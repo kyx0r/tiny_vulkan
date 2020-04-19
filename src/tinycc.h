@@ -523,22 +523,13 @@ PERFORMANCE vs MSVC 2008 32-/64-bit (GCC is even slower than MSVC):
       #define STBI__ASAN __attribute__((no_sanitize("address")))
    #endif
 #endif
+
 #ifndef STBI__ASAN
 #define STBI__ASAN
 #endif
 
-#ifdef STB_SPRINTF_STATIC
-#define STBSP__PUBLICDEC static
-#define STBSP__PUBLICDEF static STBI__ASAN
-#else
-#ifdef __cplusplus
-#define STBSP__PUBLICDEC extern "C"
-#define STBSP__PUBLICDEF extern "C" STBI__ASAN
-#else
 #define STBSP__PUBLICDEC extern
 #define STBSP__PUBLICDEF STBI__ASAN
-#endif
-#endif
 
 #ifndef STB_SPRINTF_MIN
 #define STB_SPRINTF_MIN 512 // how many characters per callback
@@ -560,13 +551,8 @@ STBSP__PUBLICDEF void STB_SPRINTF_DECORATE(set_separators)(char comma, char peri
 #define stbsp__uint32 unsigned int
 #define stbsp__int32 signed int
 
-#ifdef _MSC_VER
-#define stbsp__uint64 unsigned __int64
-#define stbsp__int64 signed __int64
-#else
 #define stbsp__uint64 unsigned long long
 #define stbsp__int64 signed long long
-#endif
 #define stbsp__uint16 unsigned short
 
 #ifndef stbsp__uintptr
@@ -574,12 +560,6 @@ STBSP__PUBLICDEF void STB_SPRINTF_DECORATE(set_separators)(char comma, char peri
 #define stbsp__uintptr stbsp__uint64
 #else
 #define stbsp__uintptr stbsp__uint32
-#endif
-#endif
-
-#ifndef STB_SPRINTF_MSVC_MODE // used for MSVC2013 and earlier (MSVC2015 matches GCC)
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-#define STB_SPRINTF_MSVC_MODE
 #endif
 #endif
 
@@ -2994,53 +2974,80 @@ long long __fixxfdi (long double a1)
 #ifdef TCC_TARGET_I386
 __asm__
 (
-	".global alloca\n"
-	"alloca:\n"
-	"pop %edx\n"
-	"pop %eax\n"
-	"add $3, %eax\n"
-	"and $-4,%eax\n"
-	"je exit\n"
-	"p1:\n"
-	"cmp $0x1000,%eax\n"
-	"jbe inter\n"
-	"test   %eax,-0x1000(%esp)\n"
-	"sub    $0x1000,%esp\n"
-	"sub    $0x1000,%eax\n"
-	"jmp p1\n"
-	"inter:\n"
-	"sub %eax,%esp\n"
-	"mov %esp,%eax\n"
-	"exit:\n"
-	"push %edx\n"
-	"push %edx\n"
-	"ret\n"
+ ".global alloca\n"
+ "alloca:\n"
+ "pop %edx\n"
+ "pop %eax\n"
+ "add $3, %eax\n"
+ "and $-4,%eax\n"
+ "je exit\n"
+ "p1:\n"
+ "cmp $0x1000,%eax\n"
+ "jbe inter\n"
+ "test   %eax,-0x1000(%esp)\n"
+ "sub    $0x1000,%esp\n"
+ "sub    $0x1000,%eax\n"
+ "jmp p1\n"
+ "inter:\n"
+ "sub %eax,%esp\n"
+ "mov %esp,%eax\n"
+ "exit:\n"
+ "push %edx\n"
+ "push %edx\n"
+ "ret\n"
 );
 
 __asm__
 (
-	".global __chkstk \n"
-	"__chkstk: \n"
-    "xchg    (%esp),%ebp\n"     /* store ebp, get ret.addr */
-    "push    %ebp\n"            /* push ret.addr */
-    "lea     4(%esp),%ebp\n"    /* setup frame ptr */
-    "push    %ecx\n"            /* save ecx */
-    "mov     %ebp,%ecx\n"
-	"P0:\n"
-    "sub     $4096,%ecx\n"
-    "test    %eax,(%ecx)\n"
-    "sub     $4096,%eax\n"
-    "cmp     $4096,%eax\n"
-    "jge     P0\n"
-    "sub     %eax,%ecx\n"
-    "test    %eax,(%ecx)\n"
-    "mov     %esp,%eax\n"
-    "mov     %ecx,%esp\n"
-    "mov     (%eax),%ecx\n"     /* restore ecx */
-    "jmp     *4(%eax)\n"
-);
+ ".global __chkstk \n"
+ "__chkstk: \n"
+ "xchg    (%esp),%ebp\n"     /* store ebp, get ret.addr */
+ "push    %ebp\n"            /* push ret.addr */
+ "lea     4(%esp),%ebp\n"    /* setup frame ptr */
+ "push    %ecx\n"            /* save ecx */
+ "mov     %ebp,%ecx\n"
+ "P0:\n"
+ "sub     $4096,%ecx\n"
+ "test    %eax,(%ecx)\n"
+ "sub     $4096,%eax\n"
+ "cmp     $4096,%eax\n"
+ "jge     P0\n"
+ "sub     %eax,%ecx\n"
+ "test    %eax,(%ecx)\n"
+ "mov     %esp,%eax\n"
+ "mov     %ecx,%esp\n"
+ "mov     (%eax),%ecx\n"     /* restore ecx */
+ "jmp     *4(%eax)\n"
+ );
 #endif
 
+#ifdef TCC_TARGET_X86_64
+__asm__
+(
+ ".globl alloca \n "
+ "alloca: \n "
+ "pop     %rdx \n "
+ "mov     %rcx,%rax \n "
+ "mov     %rdi,%rax \n "
+ "add     $15,%rax \n "
+ "and     $-16,%rax \n "
+ "jz      p3 \n "
+ "p1: \n "
+ "cmp     $4096,%rax \n "
+ "jbe     p2 \n "
+ "test    %rax,-4096(%rsp) \n "
+ "sub     $4096,%rsp \n "
+ "sub     $4096,%rax \n "
+ "jmp p1 \n "
+ "p2: \n "
+ "sub     %rax,%rsp \n "
+ "mov     %rsp,%rax \n "
+ "p3: \n "
+ "push    %rdx \n "
+"ret \n "
+);
+
+#endif
 #endif
 
 //START libtcc.h
@@ -50946,7 +50953,7 @@ static void strcat_vprintf(char *buf, int buf_size, const char *fmt, va_list ap)
 {
 	int len;
 	len = strlen(buf);
-	vsnprintf(buf + len, buf_size - len, fmt, ap);
+	stbsp_vsnprintf(buf + len, buf_size - len, fmt, ap);
 }
 
 static void strcat_printf(char *buf, int buf_size, const char *fmt, ...)

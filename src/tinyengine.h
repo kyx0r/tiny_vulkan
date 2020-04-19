@@ -6,8 +6,8 @@ void Tiny_Free(void *Ptr);
 u64 Tiny_GetTimerValue();
 f64 Tiny_GetTime();
 void Tiny_Yeild(s32 Ms);
-void Tiny_AddWatch(char* File);
-void Tiny_WatchUpdate();
+s32 Tiny_AddWatch(char* File);
+void Tiny_WatchUpdate(s32 *Wd);
 
 u8 *Tiny_ReadFile(const char *Filename, s32 *Size)
 {

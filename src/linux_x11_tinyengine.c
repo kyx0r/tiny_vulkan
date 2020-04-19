@@ -201,14 +201,15 @@ int TinyEngineMain(int argc, char** argv)
 		exit(1);
 	}
 
+	XInitThreads();
 	Wnd.Screen = XDefaultScreen(Wnd.Display);
-
 	Wnd.Attr.background_pixel = XBlackPixel(Wnd.Display, Wnd.Screen);
 	Wnd.ValueMask |= CWBackPixel;
 	Wnd.Depth = DefaultDepth(Wnd.Display, Wnd.Screen);
 	Wnd.RootWindow = RootWindow(Wnd.Display, DefaultScreen(Wnd.Display));
-	Wnd.Width = 640;
-	Wnd.Height = 480;
+	Screen* Sc = XDefaultScreenOfDisplay(Wnd.Display);
+	Wnd.Width = XWidthOfScreen(Sc);
+	Wnd.Height = XHeightOfScreen(Sc);
 	Wnd.XXyz = 0;
 	Wnd.YXyz = 0;
 	Wnd.BorderWidth = 0;
@@ -224,14 +225,14 @@ int TinyEngineMain(int argc, char** argv)
 			ButtonPress | ButtonRelease);
 
 	XMapWindow(Wnd.Display, Wnd.Window);
-	XInitThreads();
 
-	// Set window title
-	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 	//This call is crucial because the window size may be changed by window manager.
 	ProcessEvents();
 	pthread_t Ithread;
 	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
+
+	// Set window title
+	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 
 	const char *RequiredExtensions[] =
 	{
@@ -255,13 +256,13 @@ int TinyEngineMain(int argc, char** argv)
 	vk_entity_t EntIds[1000] = {0};
 
 
-	Tiny_AddWatch("./");
+	s32 RootDir = Tiny_AddWatch("./");
 
 
 	while (KSym != XK_Escape)
 	{
 		Tiny_FpsCalc();
-		Tiny_WatchUpdate();
+		Tiny_WatchUpdate(&RootDir);
 		VkBeginRendering();
 
 		//DRAW commands go in between Begin and End respectively.
@@ -352,7 +353,7 @@ int TinyEngineMain(int argc, char** argv)
 
 		VkDrawTextured(ArrayCount(Vertices), &Vertices[0], ArrayCount(indeces), &indeces[0], 1, &EntIds[1]);
 
-		VkDrawLightnings(300, 200, 1000, 1000, 0.75f, 0.0f, &EntIds[3]);
+		VkDrawLightnings(300, 100, 1000, 1000, 0.75f, 0.0f, &EntIds[3]);
 		if(KSym == XK_Tab)
 		{
 			EntIds[3].Tag = 2;
@@ -523,24 +524,11 @@ redo:
 
 }
 
-#ifdef __TINYC__
-
-int _runmain()
-{
-	TinyEngineMain(0, NULL);
-	p("Exit TinyEngineMain");
-	return 0;
-}
-
-#endif
-
 s32 Mfd;
 struct timeval MTimeOut;
 fd_set MDescriptorSet;
-u32 WatchIdx;
-s32 FileWIds[10];
 
-void Tiny_AddWatch(char* File)
+s32 Tiny_AddWatch(char* File)
 {
 	if(!Mfd)
 	{
@@ -548,7 +536,7 @@ void Tiny_AddWatch(char* File)
 		if (Mfd < 0)
 		{
 			Error("File watch init.");
-			return;
+			return 0;
 		}
 		MTimeOut.tv_sec = 0;
 		MTimeOut.tv_usec = 0;
@@ -566,10 +554,10 @@ void Tiny_AddWatch(char* File)
 			Error("Filewatch error: %s", strerror(errno));
 		}
 	}
-	FileWIds[WatchIdx++] = Wd;
+	return Wd;
 }
 
-void Tiny_WatchUpdate()
+void Tiny_WatchUpdate(s32 *Wd)
 {
 	FD_SET(Mfd, &MDescriptorSet);
 
@@ -593,18 +581,23 @@ void Tiny_WatchUpdate()
 				if(strstr(pevent->name, ".c") || strstr(pevent->name, ".h"))
 				{
 					main(1, NULL);
-					//break;
+					inotify_rm_watch(Mfd, *Wd);
+					*Wd = Tiny_AddWatch("./");
+					return;
 				}
-			}
-			//find that file by id
-			for(u32 i = 0; i < WatchIdx; i++)
-			{
-				//p("Bitch %s ", pevent->name);
-				//if(pevent->wd == FileWIds[i])
-				//{
-				//}
 			}
 			i += sizeof(struct inotify_event) + pevent->len;
 		}
 	}
 }
+
+#ifdef __TINYC__
+
+int _runmain()
+{
+	TinyEngineMain(0, NULL);
+	p("Exit TinyEngineMain");
+	return 0;
+}
+
+#endif

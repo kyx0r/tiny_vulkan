@@ -452,7 +452,7 @@ VkImageView* VkSwchImageViews;
 Objects are in unified arrays instead of
 separate varibles, manage with indexing carefully.
 */
-#define NUM_SEMAPHORES 10
+#define NUM_SEMAPHORES 2
 #define NUM_FENCES 10
 #define NUM_RENDERPASSES 10
 #define NUM_FRAMEBUFFERS 10
