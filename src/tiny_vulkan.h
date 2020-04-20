@@ -2142,6 +2142,7 @@ _continue:;
 	//TODO(Kyryl): This is important, need a proper fallback if not listed.
 	//PresentationMode = VK_PRESENT_MODE_FIFO_KHR;
 	PresentationMode = VK_PRESENT_MODE_MAILBOX_KHR;
+next_mode:
 	for(i = 0; i<ModesCount; i++)
 	{
 		if(PresentModes[i]==PresentationMode)
@@ -2149,7 +2150,12 @@ _continue:;
 			break;
 		}
 	}
-	ASSERT(i != ModesCount, "Presentation mode is not supported!");
+	if(i == ModesCount)
+	{
+		Warn("Presentation mode VK_PRESENT_MODE_MAILBOX_KHR is not supported");
+		PresentationMode = VK_PRESENT_MODE_FIFO_KHR;
+		goto next_mode;
+	}
 
 	//NOTE(Kyryl): This is necessary for swapchain resize.
 	VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(GpuDevice, VkSurface, &SurfaceCapabilities));
@@ -2635,13 +2641,13 @@ out:;
 	if(!BlitSupport)
 	{
 		Fatal("Device does not support VK_FORMAT_FEATURE_BLIT_SRC_BIT.");
-		abort();
+		return false;
 	}
 	BlitSupport = (FormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
 	if(!BlitSupport)
 	{
 		Fatal("Device does not support VK_FORMAT_FEATURE_BLIT_DST_BIT.");
-		abort();
+		return false;
 	}
 	//End OTHER FEATURES
 

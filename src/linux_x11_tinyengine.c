@@ -1,7 +1,7 @@
 #define LINUX_LEAN_AND_MEAN
 #define VK_NO_PROTOTYPES
 #define VK_USE_PLATFORM_XLIB_KHR
-//#define TINYENGINE_DEBUG
+#define TINYENGINE_DEBUG
 
 #include "tinycc.h"
 #include "tinyengine.h"
@@ -226,11 +226,6 @@ int TinyEngineMain(int argc, char** argv)
 
 	XMapWindow(Wnd.Display, Wnd.Window);
 
-	//This call is crucial because the window size may be changed by window manager.
-	ProcessEvents();
-	pthread_t Ithread;
-	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
-
 	// Set window title
 	XStoreName(Wnd.Display, Wnd.Window, "TinyEngine");
 
@@ -251,6 +246,9 @@ int TinyEngineMain(int argc, char** argv)
 		exit(1);
 	}
 
+	XInitThreads();
+	pthread_t Ithread;
+	ASSERT(!pthread_create(&Ithread, NULL, &EventThread, NULL), "pthread: EventThread failed.");
 
 	TimerOffset = Tiny_GetTimerValue();
 	vk_entity_t EntIds[1000] = {0};

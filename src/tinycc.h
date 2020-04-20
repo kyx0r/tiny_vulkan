@@ -39,6 +39,7 @@
 #include <time.h>
 #include <assert.h>
 #include <stdint.h>
+#include <ctype.h>
 
 #ifndef _WIN32
 # include <unistd.h>
@@ -9834,57 +9835,6 @@ PUB_FUNC void tcc_enter_state(TCCState *s1);
 //START CLIB
 //Functions replacing Clib
 
-int isalpha(int c)
-{
-    char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                      "abcdefghijklmnopqrstuvwxyz";
-    char *letter = alphabet;
-
-    while(*letter != '\0' && *letter != c)
-        ++letter;
-
-    if (*letter)
-        return 1;
-
-    return 0;
-}
-
-int isdigit(int c)
-{
-        if (c >= '0' && c <= '9')
-                return c;
-        else
-                return 0;
-}
-
-int isupper(int c)
-{
-	if (c >= 'A' && c <= 'Z')
-		return c;
-	else
-		return 0;
-}
-
-int isspace(int c)
-{
-	switch (c)
-	{
-		case ' ':
-			return 1;
-		case '\n':
-			return 1;
-		case '\t':
-			return 1;
-		case '\r':
-			return 1;
-		case '\v':
-			return 1;
-		case '\f':
-			return 1;
-	}
-	return 0;
-}
-
 char *strlwr(char *string)
 {
 	char *tmp = string;
@@ -9900,36 +9850,6 @@ char *strlwr(char *string)
 }
 
 
-char *strcpy(char *dest, const char *src)
-{
-	char *tmp = dest;
-	while(*dest++ = *src++);
-	return tmp;
-}
-
-char *strncpy(char *dest, const char *src, size_t count)
-{
-	char *tmp = dest;
-	while (*src && count--)
-	{
-		*dest++ = *src++;
-	}
-	if (count)
-		*dest++ = 0;
-	return tmp;
-}
-
-size_t strlen(const char *str)
-{
-	int		count;
-
-	count = 0;
-	while (str[count])
-		count++;
-
-	return count;
-}
-
 int dstrlen (const char *s, char delim)
 {
 	register const char* i;
@@ -9944,25 +9864,6 @@ int chstrlen (const char* s, char ch)
 	return (i-s)+1;
 }
 
-char *strrchr(const char *s, int c)
-{
-	int len = strlen(s);
-	s += len;
-	while (len--)
-	{
-		if (*--s == c)
-			return (char *)s;
-	}
-	return NULL;
-}
-
-char *strcat(char *dest, const char *src)
-{
-	dest += strlen(dest);
-	strcpy (dest, src);
-	return dest;
-}
-
 char* fstrcat(char *dest, char *src)
 {
      while (*dest) dest++;
@@ -9970,30 +9871,6 @@ char* fstrcat(char *dest, char *src)
      return --dest;
 }
 
-char *strchr(const char *s, int c)
-{
-    while (*s != (char)c)
-        if (!*s++)
-            return 0;
-    return (char *)s;
-}
-
-int strcmp(const char *X, const char *Y)
-{
-	while(*X)
-	{
-		// if characters differ or end of second string is reached
-		if (*X != *Y)
-			break;
-
-		// move to next pair of characters
-		X++;
-		Y++;
-	}
-
-	// return the ASCII difference after converting char* to unsigned char*
-	return *(const unsigned char*)X - *(const unsigned char*)Y;
-}
 
 int fstrcmp(const char *X, const char *Y)
 {
@@ -10026,38 +9903,6 @@ int fstrncmp(const char *s1, const char *s2, size_t count)
 	return -1;
 }
 
-char *strstr(const char *str1, const char *str2)
-{
-	while (*str1 != '\0')
-	{
-		if ((*str1 == *str2) && strcmp(str1, str2) == 0)
-			return (char*)str1;
-		str1++;
-	}
-
-	return NULL;
-}
-
-int atoi(const char* str) 
-{ 
-    if (*str == '\0') 
-        return 0; 
-  
-    int res = 0; // Initialize result 
-    int sign = 1; // Initialize sign as positive 
-    int i = 0; // Initialize index of first digit 
-  
-    if (str[0] == '-') { 
-        sign = -1; 
-        i++; // Also update index of first digit 
-    } 
-    for (; str[i] != '\0'; ++i) { 
-        if (isdigit(str[i]) == 0) 
-            return 0; 
-        res = res * 10 + str[i] - '0'; 
-    } 
-    return sign * res; 
-} 
 
 //END CLIB
 
