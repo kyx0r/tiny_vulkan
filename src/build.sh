@@ -29,7 +29,6 @@ echo "unknown OS"
 exit 1
 fi
 
-assertInstalled $CC
 mkdir -p ../build
 
 function shaders()
@@ -54,6 +53,7 @@ function hexshaders()
 
 function cross()
 {
+	assertInstalled $CC
 	if [ "$1" == "1" ]
 	then
 		hexshaders
@@ -70,12 +70,12 @@ function linuxx11()
 	if [ "$1" == "1" ]
 	then
 		hexshaders
-		gcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
+		gcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine
 		exit 0
 	fi
 	shaders
 	assertInstalled gcc
-	gcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
+	gcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine
 	exit 0
 }
 
@@ -84,12 +84,12 @@ function linuxx11tcc()
 	if [ "$1" == "1" ]
 	then
 		hexshaders
-		tcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
+		tcc -O3 -g -Wall -Wextra -Wno-unused-parameter -DHEX_SHADERS -I./shaders -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine
 		exit 0
 	fi
 	shaders
 	assertInstalled gcc
-	tcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine.exe
+	tcc -O3 -g  -Wall -Wextra -Wno-unused-parameter -I/usr/X11R6/include -L/usr/X11R6/lib -lX11 -lXext -lm -pthread -ldl linux_x11_tinyengine.c -o tinyengine
 	exit 0
 }
 
